@@ -1,0 +1,36 @@
+%%{init: {'theme': 'dark', 'themeVariables': { 'fontSize': '16px', 'fontFamily': 'arial'}}}%%
+graph TD
+    subgraph Data_Ingestion [Data Ingestion Layer]
+        YF[Yahoo Finance API] -->|Prices| Stock[Stock Data]
+        YF -->|Yields| TNX[^TNX 10Y Yield]
+        YF -->|Volatility| VIX[^VIX Volatility]
+        YF -->|Options Chain| OPT[Options Data]
+        YF -->|Sector ETF| XLK[XLK / SPY]
+    end
+
+    subgraph Intelligence_Layer [The Protocols]
+        Stock -->|Calc RSI| Prot_F[Protocol F: Momentum]
+        TNX -->|Bollinger Bands| Prot_A[Protocol A: Macro]
+        VIX -->|Threshold > 25| Prot_B[Protocol B: Gamma]
+        OPT -->|Open Interest| Prot_C[Protocol C: Max Pain]
+        Stock -->|Volume Profile| Prot_D[Protocol D: Gaps]
+        XLK -->|Relative Strength| Prot_E[Protocol E: Sector]
+    end
+
+    subgraph Logic_Core [AI Aggregation]
+        Prot_A & Prot_B & Prot_C & Prot_D -->|Raw Support Levels| Pool[Liquidity Pool]
+        Pool -->|K-Means Algo| Cluster[Clustering Engine]
+        Cluster -->|3 Centers| Levels[3 Raw Levels]
+    end
+
+    subgraph Risk_Management [Risk Filter]
+        Levels --> Check_Sec{Sector Strong?}
+        Prot_E --> Check_Sec
+        Check_Sec -->|Yes| Check_RSI{RSI < 55?}
+        Check_Sec -->|No| Shift[DEFENSIVE SHIFT: Drop L1, Add Crash L4]
+        
+        Check_RSI -->|Yes| Final[Final Orders]
+        Check_RSI -->|No| Warn[Mark L1 as HIGH RISK]
+        Warn --> Final
+        Shift --> Final
+    end

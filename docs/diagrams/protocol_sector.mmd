@@ -1,0 +1,23 @@
+%%{init: {'theme': 'dark'}}%%
+flowchart TD
+    Start([Start Protocol E]) --> Fetch[Fetch XLK & SPY]
+    Fetch --> Calc[Calculate Ratio: XLK / SPY]
+    Calc --> SMA[Calculate 20-Day SMA of Ratio]
+    
+    SMA --> Decision{Current Ratio > SMA20?}
+    
+    Decision -- Yes --> Strong[Signal: STRONG]
+    Strong --> ResultA[Keep Standard Aggressive Levels]
+    ResultA --> End([End])
+    
+    Decision -- No --> Weak[Signal: WEAK]
+    Weak --> Shift[Trigger Defensive Shift]
+    
+    subgraph Defensive_Action
+        Shift --> Del[DELETE Level 1 Aggressive]
+        Del --> Move[Shift L2 -> L1, L3 -> L2]
+        Move --> CalcL4[Calculate Level 3 Disaster]
+        CalcL4 --> Formula[Formula: Mean - 3*StdDev]
+    end
+    
+    Formula --> End

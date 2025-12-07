@@ -1,0 +1,10 @@
+yfinance
+pandas
+numpy
+scikit-learn
+matplotlib
+mplfinance
+streamlit
+plotly
+google-generativeai
+python-dotenv

@@ -1,0 +1,20 @@
+%%{init: {'theme': 'dark'}}%%
+flowchart TD
+    Start([Start Protocol F]) --> Fetch[Fetch Daily Close Prices]
+    Fetch --> RSI[Calculate RSI-14]
+    
+    RSI --> Check{Check Value}
+    
+    Check -- < 30 --> Oversold[OVERSOLD: Prime Entry]
+    Oversold --> Confidence[Boost Confidence]
+    
+    Check -- 30 to 55 --> Neutral[NEUTRAL / WEAK]
+    Neutral --> Accumulate[Good for Accumulation]
+    
+    Check -- > 55 --> Overbought[OVERBOUGHT / STRONG]
+    Overbought --> Warning[Trigger RISK WARNING]
+    
+    subgraph Action
+        Warning --> Rename[Rename Level 1 -> HIGH RSI RISK]
+        Rename --> Log[Log Warning to User]
+    end
