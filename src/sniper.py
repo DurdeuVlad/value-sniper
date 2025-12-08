@@ -148,7 +148,7 @@ class TechSniperAI:
         if not tnx_upper.empty and current_tnx > upper_band:
             print(f"[MACRO] Yields at Resistance. Tech bounce probable.")
             self.runtime_log['Macro Protocol'] = f"{log_entry} -> SIGNAL: BULLISH (Yield Reversion)"
-            return 1.05 # Boost entry price slightly
+            # REMOVED: Macro boost defeats limit order purpose. Keep at 1.0
         
         self.runtime_log['Macro Protocol'] = f"{log_entry} -> SIGNAL: NEUTRAL"
         return 1.0
@@ -176,11 +176,12 @@ class TechSniperAI:
         return discount
 
     def find_breakaway_gaps(self):
-        """Protocol D: Unfilled Gaps"""
+        """Protocol D: Unfilled Gaps (Weighted by Age)"""
         if self.df.empty: return
         self.df['Vol_SMA20'] = self.df['Volume'].rolling(20).mean()
         
         found_gaps = []
+        current_date = self.df.index[-1]
         
         for i in range(1, len(self.df) - 5):
             curr, prev = self.df.iloc[i], self.df.iloc[i-1]
@@ -189,9 +190,21 @@ class TechSniperAI:
                     # Check if unfilled
                     if self.df['Low'].iloc[i+1:].min() > prev['High']:
                         gap_price = prev['High']
-                        self.potential_supports.append(gap_price) # Add twice for weight
-                        self.potential_supports.append(gap_price)
-                        found_gaps.append(f"Date: {self.df.index[i].date()} | Price: ${gap_price:.2f} | Vol Ratio: {curr['Volume']/prev['Vol_SMA20']:.1f}x")
+                        gap_date = self.df.index[i]
+                        days_since_gap = (current_date - gap_date).days
+                        
+                        # Weight by age
+                        if days_since_gap > 20:  # Gap held for a month
+                            weight = 3  # Very strong
+                        elif days_since_gap > 5:
+                            weight = 2  # Moderate
+                        else:
+                            weight = 1  # Unproven (new gap)
+                        
+                        for _ in range(weight):
+                            self.potential_supports.append(gap_price)
+                        
+                        found_gaps.append(f"Date: {gap_date.date()} | Price: ${gap_price:.2f} | Age: {days_since_gap}d | Weight: {weight}x")
 
         self.runtime_log['Gap Protocol'] = found_gaps if found_gaps else ["No major breakaway gaps found."]
 
@@ -359,9 +372,17 @@ class TechSniperAI:
                        np.sum(np.maximum(0, df_pain['Strike'] - k) * df_pain['Put_OI'])
                 if loss < min_loss: min_loss, max_pain = loss, k
             
-            print(f"[OPTIONS] Max Pain Strike: ${max_pain}")
-            self.potential_supports.append(max_pain)
-            self.runtime_log['Options Protocol'] = f"Max Pain Strike: ${max_pain} (Put/Call Balance)"
+            # Add OI Walls instead of just max pain
+            df_pain['Total_OI'] = df_pain['Call_OI'] + df_pain['Put_OI']
+            median_oi = df_pain['Total_OI'].median()
+            oi_walls = df_pain[df_pain['Total_OI'] > median_oi * 2]['Strike'].tolist()
+            
+            # Add OI walls to potential supports
+            for wall in oi_walls:
+                self.potential_supports.append(wall)
+            
+            print(f"[OPTIONS] Found {len(oi_walls)} OI Walls (Max Pain: ${max_pain})")
+            self.runtime_log['Options Protocol'] = f"OI Walls Found: {len(oi_walls)} strikes (Max Pain: ${max_pain})"
         except Exception as e:
             self.runtime_log['Options Protocol'] = f"Failed to calc Max Pain: {e}"
             pass
@@ -396,21 +417,30 @@ class TechSniperAI:
         return current_rsi
 
     def analyze_valuation_regime(self):
-        """Protocol G: Valuation Safety (Price-to-Sales)"""
+        """Protocol G: Valuation Safety (Sector-Relative P/S)"""
         ps_ratio = self.fundamentals.get('PS', 0)
         
-        if ps_ratio > 30:
-            multiplier = 0.90
-            status = "EXTREME (Demanding 10% Discount)"
-        elif ps_ratio > 15:
-            multiplier = 0.95
-            status = "ELEVATED (Demanding 5% Discount)"
-        else:
+        # Sector average for Tech (empirical baseline)
+        sector_avg_ps = 15.0  # Typical tech sector P/S
+        
+        if ps_ratio == 0:
             multiplier = 1.0
-            status = "FAIR"
+            status = "UNKNOWN"
+        else:
+            ps_premium = (ps_ratio / sector_avg_ps) - 1
             
-        print(f"[VALUATION] P/S Ratio: {ps_ratio:.2f} -> {status}")
-        self.runtime_log['Valuation Protocol'] = f"P/S: {ps_ratio:.2f} -> {status}"
+            if ps_premium > 1.0:  # 2x sector average
+                multiplier = 0.90
+                status = f"EXTREME ({ps_premium*100:.0f}% above sector - 10% Discount)"
+            elif ps_premium > 0.5:  # 1.5x sector average
+                multiplier = 0.95
+                status = f"ELEVATED ({ps_premium*100:.0f}% above sector - 5% Discount)"
+            else:
+                multiplier = 1.0
+                status = "FAIR (At/Below Sector Average)"
+            
+        print(f"[VALUATION] P/S Ratio: {ps_ratio:.2f} (Sector Avg: {sector_avg_ps:.2f}) -> {status}")
+        self.runtime_log['Valuation Protocol'] = f"P/S: {ps_ratio:.2f} vs Sector {sector_avg_ps:.2f} -> {status}"
         return multiplier
 
     def run_full_analysis(self, orders, progress_callback=None):
@@ -471,6 +501,53 @@ class TechSniperAI:
                 estimated_ps = current_ps * (target_price / self.current_price)
             
         return estimated_pe, estimated_ps
+    
+    def should_trigger_defensive_shift(self, is_tech_strong, is_market_healthy, breadth_gap):
+        """Consolidated logic for defensive shift decision."""
+        # Check all warning signals
+        sector_weak = not is_tech_strong
+        breadth_narrow = not is_market_healthy
+        breadth_divergence = breadth_gap > 5.0
+        
+        # If ANY warning signal, shift down
+        if sector_weak:
+            return True, "Sector Weakness"
+        if breadth_narrow:
+            return True, "Market Breadth Divergence"
+        if breadth_divergence:
+            return True, "Narrow Rally (Breadth Gap > 5%)"
+        
+        return False, ""
+    
+    def check_for_no_trade_conditions(self, current_adx):
+        """Check if market conditions warrant a no-trade warning."""
+        if self.df.empty:
+            return False, ""
+        
+        # Calculate indicators
+        sma200 = self.df['Close'].rolling(200).mean().iloc[-1] if len(self.df) > 200 else 0
+        price = self.current_price
+        current_vix = self.vix['Close'].iloc[-1] if not self.vix.empty else 0
+        
+        # Check for sector breakdown
+        sector_breakdown = False
+        if not self.xlk.empty and not self.spy.empty:
+            common_idx = self.xlk.index.intersection(self.spy.index)
+            if len(common_idx) > 50:
+                xlk_close = self.xlk.loc[common_idx]['Close']
+                spy_close = self.spy.loc[common_idx]['Close']
+                ratio = xlk_close / spy_close
+                sma50 = ratio.rolling(window=50).mean().iloc[-1] if len(ratio) > 50 else ratio.iloc[-1]
+                current_ratio = ratio.iloc[-1]
+                sector_breakdown = current_ratio < (sma50 * 0.95)  # 5% below trend
+        
+        strong_downtrend = (current_adx > 35 and price < sma200) if sma200 > 0 else False
+        extreme_fear = current_vix > 35
+        
+        if strong_downtrend and (extreme_fear or sector_breakdown):
+            return True, "Strong downtrend with poor structure. Consider waiting."
+        
+        return False, ""
 
     def generate_orders(self):
         if self.current_price == 0:
@@ -486,6 +563,9 @@ class TechSniperAI:
         current_adx = self.analyze_trend_strength()
         self.find_breakaway_gaps()
         self.calculate_max_pain()
+        
+        # Check for no-trade conditions
+        no_trade, no_trade_reason = self.check_for_no_trade_conditions(current_adx)
         
         # Add SMA200 and Lower BB
         if len(self.df) > 200:
@@ -512,75 +592,97 @@ class TechSniperAI:
         rolling_std = self.df['Close'].rolling(20).std().iloc[-1]
         level_4 = self.df['Close'].rolling(20).mean().iloc[-1] - (rolling_std * 3)
 
-        # 3. Apply Sector Logic (Dynamic Aggression) 
+        # 3. UNIFIED RISK SCORE (Replaces multiplicative modifiers)
+        risk_score = 0
+        current_vix = self.vix['Close'].iloc[-1] if not self.vix.empty else 20
+        ps_ratio = self.fundamentals.get('PS', 0)
         
-        # Protocol F: RSI Discounting
-        rsi_mod = 1.0
-        if current_rsi > 70: rsi_mod = 0.95
-        elif current_rsi > 55: rsi_mod = 0.98
+        if current_vix > 25: risk_score += 1
+        if ps_ratio > 30: risk_score += 2  # Heavier weight for valuation
+        elif ps_ratio > 15: risk_score += 1
+        if current_rsi > 70: risk_score += 1
+        if current_adx > 30: risk_score += 1
         
-        # Protocol I: ADX Trend Safety
-        adx_mod = 1.0
-        if current_adx > 30: # Strong Trend
-             adx_mod = 0.98 # Widen margins slightly for strong momentum
+        # Apply uniform discount to ALL levels based on risk score
+        if risk_score == 0:
+            unified_discount = 1.00  # Normal conditions
+        elif risk_score <= 2:
+            unified_discount = 0.98  # Moderate caution (2% discount)
+        else:
+            unified_discount = 0.95  # High caution (5% discount)
+        
+        print(f"[RISK SCORE] Total: {risk_score}/5 -> Unified Discount: {unified_discount:.2f}")
+        self.runtime_log['Risk Score'] = f"Score: {risk_score}/5 (VIX:{current_vix:.1f}, P/S:{ps_ratio:.1f}, RSI:{current_rsi:.1f}, ADX:{current_adx:.1f}) -> Discount: {unified_discount:.2f}"
         
         orders_with_labels_and_values = []
         risk_alert_message = "" # Initialize risk alert
+        
+        # Check defensive shift
+        trigger_shift, shift_reason = self.should_trigger_defensive_shift(is_tech_strong, is_market_healthy, breadth_gap)
 
-        if is_tech_strong and is_market_healthy:
+        if not trigger_shift:
             # STANDARD MODE
             l1_label = "Level 1 (Aggressive)"
-            if current_rsi > 55:
-                l1_label = f"Level 1 (Aggressive - RSI Adjusted {rsi_mod:.2f}x)"
-            
-            # Check for Visual Invalidation due to Narrow Rally
-            if breadth_gap > 5.0:
-                l1_label = f"~~{l1_label}~~ (INVALID - Narrow Rally)"
-                risk_alert_message = "⚠️ RISK ALERT: Level 1 is invalidated due to weak market breadth. Focus buying power on Level 2 and Level 3."
             
             orders_with_labels_and_values.append(
-                (centers[0] * macro_mod * gamma_mod * rsi_mod * adx_mod, l1_label))
+                (centers[0] * unified_discount, l1_label))
             orders_with_labels_and_values.append(
-                (centers[1] * macro_mod * gamma_mod, "Level 2 (Deep Value)"))
+                (centers[1] * unified_discount, "Level 2 (Deep Value)"))
             orders_with_labels_and_values.append(
-                (level_4, "Level 3 (Capitulation)"))
+                (level_4 * unified_discount, "Level 3 (Capitulation)"))
             
         else:
             # DEFENSIVE SHIFT
-            reason = "Sector Weakness" if not is_tech_strong else "Market Breadth Divergence"
-            print(f"[RISK] {reason} Detected. shifting orders down (Deleting Level 1).")
-            self.runtime_log['Sector Logic'] = f"{reason} Detected -> SHIFTING ORDERS DOWN (Deleting Aggressive Level)"
+            print(f"[RISK] {shift_reason} Detected. Shifting orders down (Deleting Level 1).")
+            self.runtime_log['Sector Logic'] = f"{shift_reason} Detected -> SHIFTING ORDERS DOWN (Deleting Aggressive Level)"
             
-            # Level 1 is effectively deleted/shifted, so no need for strikethrough in this branch
+            # Level 1 is effectively deleted/shifted
             orders_with_labels_and_values.append(
-                (centers[1] * macro_mod * gamma_mod, "Level 1 (Value - Shifted)"))
+                (centers[1] * unified_discount, "Level 1 (Value - Shifted)"))
             orders_with_labels_and_values.append(
-                (centers[2] * macro_mod * gamma_mod, "Level 2 (Capitulation - Shifted)"))
+                (centers[2] * unified_discount, "Level 2 (Capitulation - Shifted)"))
             orders_with_labels_and_values.append(
-                (level_4, "Level 3 (Disaster/3-Sigma)"))
+                (level_4 * unified_discount, "Level 3 (Disaster/3-Sigma)"))
 
 
         # WATERFALL SORT (Safety Mechanism)
         # Sort by value in descending order to ensure L1 > L2 > L3
         orders_with_labels_and_values.sort(key=lambda x: x[0], reverse=True)
         
+        # ENFORCE MINIMUM 3% SEPARATION
+        min_gap_percent = 0.03
+        for i in range(len(orders_with_labels_and_values) - 1):
+            current_price_val = orders_with_labels_and_values[i][0]
+            next_price_val = orders_with_labels_and_values[i+1][0]
+            
+            if current_price_val > 0:  # Avoid division by zero
+                gap = (current_price_val - next_price_val) / current_price_val
+                if gap < min_gap_percent:
+                    # Enforce separation by adjusting the lower level
+                    orders_with_labels_and_values[i+1] = (
+                        current_price_val * (1 - min_gap_percent),
+                        orders_with_labels_and_values[i+1][1]
+                    )
+        
         final_orders = {}
         
-        # Define qualitative possibility for each level's rank
+        # SIMPLIFIED POSSIBILITY LABELS (Non-probability sounding)
         possibility_rank = {
-            0: "Normal Probability (Expected Pullback)", # Corresponds to the highest level
-            1: "Medium Probability (Significant Correction)", # Corresponds to the middle level
-            2: "Low Probability (Extreme Capitulation)" # Corresponds to the lowest level
+            0: "Common Pullback Zone (-5% to -10%)",
+            1: "Significant Correction Zone (-10% to -20%)", 
+            2: "Extreme Capitulation Zone (-20%+)"
+        }
+        
+        # POSITION SIZING GUIDANCE
+        position_allocation = {
+            0: "20% of capital",
+            1: "30% of capital",
+            2: "50% of capital"
         }
 
         # Re-initialize the keys based on whether it's Standard or Defensive
-        # This logic determines the FINAL labels based on the sorted positions
-        if is_tech_strong and is_market_healthy:
+        if not trigger_shift:
             final_labels_in_order = ["Level 1 (Aggressive)", "Level 2 (Deep Value)", "Level 3 (Capitulation)"]
-            # Apply strikethrough to the Level 1 label if it was invalidated
-            if "~~Level 1 (Aggressive)~~" in orders_with_labels_and_values[0][1]: # Check if original L1 label was marked for strikethrough
-                 final_labels_in_order[0] = orders_with_labels_and_values[0][1] # Use the strikethrough label
-
         else: # Defensive Shift
             final_labels_in_order = ["Level 1 (Value - Shifted)", "Level 2 (Capitulation - Shifted)", "Level 3 (Disaster/3-Sigma)"]
 
@@ -598,16 +700,18 @@ class TechSniperAI:
                 'estimated_pe': pe,
                 'estimated_ps': ps,
                 'percent_drop': percent_drop,
-                'possibility': possibility_rank[i], # Assign possibility based on rank
-                'is_invalidated_l1': (risk_alert_message != "" and i==0) # Flag for dashboard to apply strikethrough on price
+                'possibility': possibility_rank[i],
+                'position_size': position_allocation[i],
+                'is_invalidated_l1': False
             }
         
-        # Add risk alert to runtime log if applicable
-        if risk_alert_message:
-            self.runtime_log['Recommendation'] = risk_alert_message
+        # Add no-trade warning if applicable
+        if no_trade:
+            self.runtime_log['No-Trade Warning'] = f"⚠️ CAUTION: {no_trade_reason}"
+            self.runtime_log['Recommendation'] = f"⚠️ {no_trade_reason} Levels shown are theoretical. Risk is elevated."
         else:
-            self.runtime_log['Recommendation'] = "Focus buying power on Level 1, Level 2 and Level 3." # Default recommendation
-                
+            self.runtime_log['Recommendation'] = f"Focus buying power across levels: L1 ({position_allocation[0]}), L2 ({position_allocation[1]}), L3 ({position_allocation[2]})"
+        
         return final_orders
 
 if __name__ == "__main__":
@@ -637,13 +741,15 @@ if __name__ == "__main__":
         print(f"\n>>> SNIPER ORDERS FOR {TARGET} (Current: ${bot.current_price:.2f}) <<<")
         for k, v in orders.items():
             price_str = f"${v['price']:.2f}"
-            if v.get('is_invalidated_l1'):
-                price_str = f"~~{price_str}~~"
             
-            print(f"{k}: {price_str} (-{v['percent_drop']:.2f}%) (Est. P/E: {v['estimated_pe']:.2f}, Est. P/S: {v['estimated_ps']:.2f}) (Possibility: {v['possibility']})")
+            print(f"{k}: {price_str} (-{v['percent_drop']:.2f}%) | Allocate: {v.get('position_size', 'N/A')}")
+            print(f"  Est. P/E: {v['estimated_pe']:.2f}, Est. P/S: {v['estimated_ps']:.2f} | {v['possibility']}")
         
         if 'Recommendation' in bot.runtime_log:
             print(f"\n{bot.runtime_log['Recommendation']}")
+        
+        if 'No-Trade Warning' in bot.runtime_log:
+            print(f"\n{bot.runtime_log['No-Trade Warning']}")
 
         if args.plot:
             plotter = SniperPlotter(bot)

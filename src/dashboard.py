@@ -26,6 +26,281 @@ use_cache = st.sidebar.checkbox("Use Cache", value=True)
 enable_ai = st.sidebar.checkbox("Enable AI Analysis", value=False)
 run_btn = st.sidebar.button("Run Analysis")
 
+# Export functionality helper
+def generate_markdown_report(ticker, current_price, orders, bot, ai_report=None):
+    """Generate a comprehensive markdown report of the analysis."""
+    from datetime import datetime
+    
+    report = f"""# 🎯 Value Sniper Analysis Report
+## {ticker}
+**Generated:** {datetime.now().strftime("%B %d, %Y at %I:%M %p")}  
+**Current Price:** ${current_price:.2f}
+
+---
+
+## 📊 Executive Summary
+
+"""
+    
+    # Add recommendation first
+    if 'Recommendation' in bot.runtime_log:
+        report += f"""{bot.runtime_log['Recommendation']}
+
+"""
+    
+    # Add no-trade warning if present
+    if 'No-Trade Warning' in bot.runtime_log:
+        report += f"""### ⚠️ WARNING
+{bot.runtime_log['No-Trade Warning']}
+
+"""
+    
+    report += """---
+
+## 💰 Support Levels & Entry Strategy
+
+"""
+    
+    # Add orders with detailed breakdown
+    for label, data in sorted(orders.items(), key=lambda x: x[1]['price'], reverse=True):
+        report += f"""### {label}
+
+| Metric | Value |
+|--------|-------|
+| **Entry Price** | ${data['price']:.2f} |
+| **Drop from Current** | -{data['percent_drop']:.2f}% |
+| **Position Sizing** | {data.get('position_size', 'N/A')} |
+| **Risk Zone** | {data['possibility']} |
+| **Est. P/E at Entry** | {data['estimated_pe']:.2f} |
+| **Est. P/S at Entry** | {data['estimated_ps']:.2f} |
+
+**Rationale:** {data['possibility']}. This level represents a strategic accumulation zone based on technical and fundamental confluence.
+
+"""
+    
+    report += """---
+
+## 📈 Fundamental Analysis
+
+### Valuation Metrics
+
+| Metric | Current Value | Assessment |
+|--------|---------------|------------|
+| **P/E Ratio** | {:.2f} | {} |
+| **P/S Ratio** | {:.2f} | {} |
+
+""".format(
+        bot.fundamentals.get('PE', 0),
+        "Expensive" if bot.fundamentals.get('PE', 0) > 50 else ("Reasonable" if bot.fundamentals.get('PE', 0) < 25 else "Neutral"),
+        bot.fundamentals.get('PS', 0),
+        "Extreme valuation" if bot.fundamentals.get('PS', 0) > 30 else ("Elevated" if bot.fundamentals.get('PS', 0) > 15 else "Fair value")
+    )
+    
+    report += """---
+
+## 🎯 Technical Indicators
+
+"""
+    
+    # Add technical indicators with context
+    indicators_added = False
+    
+    if not bot.vix.empty:
+        cur_vix = bot.vix['Close'].iloc[-1]
+        vix_status = "High Fear (Negative Gamma)" if cur_vix > 25 else ("Complacency Risk" if cur_vix < 15 else "Normal")
+        report += f"""### VIX (Fear Gauge)
+- **Current:** {cur_vix:.2f}
+- **Status:** {vix_status}
+- **Interpretation:** {'Market in fear mode - potential buying opportunity' if cur_vix > 25 else ('Low volatility - watch for complacency' if cur_vix < 15 else 'Normal market conditions')}
+
+"""
+        indicators_added = True
+    
+    if 'RSI' in bot.df.columns:
+        cur_rsi = bot.df['RSI'].iloc[-1]
+        rsi_status = "Oversold" if cur_rsi < 30 else ("Overbought" if cur_rsi > 70 else ("Weak" if cur_rsi < 45 else ("Strong" if cur_rsi > 55 else "Neutral")))
+        report += f"""### RSI (Momentum)
+- **Current:** {cur_rsi:.2f}
+- **Status:** {rsi_status}
+- **Interpretation:** {'Prime entry zone - momentum exhausted to downside' if cur_rsi < 30 else ('Avoid chasing - overbought conditions' if cur_rsi > 70 else ('Good for accumulation' if cur_rsi < 45 else 'Wait for dip'))}
+
+"""
+        indicators_added = True
+    
+    if 'ADX' in bot.df.columns:
+        cur_adx = bot.df['ADX'].iloc[-1]
+        adx_status = "Strong Trend" if cur_adx > 25 else "Choppy/Range"
+        report += f"""### ADX (Trend Strength)
+- **Current:** {cur_adx:.2f}
+- **Status:** {adx_status}
+- **Interpretation:** {'Strong directional movement - respect the trend' if cur_adx > 25 else 'Weak trend - good environment for range-bound strategies'}
+
+"""
+        indicators_added = True
+    
+    # Add breadth analysis
+    if not bot.spy.empty and not bot.rsp.empty:
+        spy_chg = (bot.spy['Close'].iloc[-1] / bot.spy['Close'].iloc[0] - 1) * 100
+        rsp_chg = (bot.rsp['Close'].iloc[-1] / bot.rsp['Close'].iloc[0] - 1) * 100
+        breadth_delta = spy_chg - rsp_chg
+        
+        breadth_status = "Narrow Rally (Warning)" if breadth_delta > 5 else ("Broad Rally (Healthy)" if breadth_delta < -5 else "Aligned")
+        report += f"""### Market Breadth (SPY vs RSP)
+- **SPY Change:** {spy_chg:.2f}%
+- **RSP Change:** {rsp_chg:.2f}%
+- **Breadth Gap:** {breadth_delta:.2f}%
+- **Status:** {breadth_status}
+- **Interpretation:** {'Only large caps rising - fragile rally structure' if breadth_delta > 5 else ('Broad market participation - healthy rally' if breadth_delta < -5 else 'Normal market conditions')}
+
+"""
+        indicators_added = True
+    
+    if not indicators_added:
+        report += "*Technical indicators unavailable*\n\n"
+    
+    report += """---
+
+## 🔬 Detailed Protocol Analysis
+
+"""
+    
+    # Add protocol results with better formatting
+    protocol_order = ['Risk Score', 'Sector Protocol', 'Breadth Protocol', 'Momentum Protocol', 'Trend Protocol', 
+                     'Gamma Protocol', 'Valuation Protocol', 'Macro Protocol', 'Gap Protocol', 'Options Protocol']
+    
+    for protocol in protocol_order:
+        if protocol in bot.runtime_log:
+            result = bot.runtime_log[protocol]
+            report += f"""### {protocol}
+"""
+            if isinstance(result, list):
+                for item in result:
+                    report += f"- {item}\n"
+                report += "\n"
+            else:
+                report += f"{result}\n\n"
+    
+    # Add any remaining protocols not in the order
+    for protocol, result in bot.runtime_log.items():
+        if protocol not in protocol_order and protocol not in ['FINAL ORDERS', 'Valuation', 'Recommendation', 'No-Trade Warning', 'Sector Logic']:
+            report += f"""### {protocol}
+"""
+            if isinstance(result, list):
+                for item in result:
+                    report += f"- {item}\n"
+                report += "\n"
+            else:
+                report += f"{result}\n\n"
+    
+    report += """---
+
+## 🤖 AI Strategic Analysis
+
+"""
+    
+    # Add comprehensive AI analysis if available
+    if ai_report:
+        # Strategic Analysis
+        if 'strategic_analysis' in ai_report:
+            report += """### Overall Strategic Assessment
+
+"""
+            raw_analysis = ai_report.get('strategic_analysis', '')
+            if isinstance(raw_analysis, dict):
+                for k, v in raw_analysis.items():
+                    report += f"**{k}:** {v}\n\n"
+            else:
+                report += f"{raw_analysis}\n\n"
+        
+        # Individual insights
+        insights = [
+            ('options_insight', 'Options Intelligence'),
+            ('macro_insight', 'Macro Regime'),
+            ('vix_insight', 'Volatility Analysis'),
+            ('breadth_insight', 'Market Breadth'),
+            ('trend_insight', 'Trend Strength'),
+            ('rsi_insight', 'Momentum Analysis'),
+            ('clustering_insight', 'Support Level Reliability')
+        ]
+        
+        report += """### Detailed Component Analysis
+
+"""
+        
+        for key, title in insights:
+            if key in ai_report and ai_report[key] and ai_report[key] != "Unavailable":
+                report += f"""#### {title}
+{ai_report[key]}
+
+"""
+    else:
+        report += "*AI analysis not available. Run analysis with 'Enable AI Analysis' checkbox to get strategic insights.*\n\n"
+    
+    report += """---
+
+## 📖 How to Use This Report
+
+### Position Sizing Strategy
+The recommended position sizing follows a pyramid approach:
+- **Level 1:** 20% of allocated capital (most aggressive entry)
+- **Level 2:** 30% of allocated capital (deep value zone)
+- **Level 3:** 50% of allocated capital (maximum safety margin)
+
+This ensures your average cost improves with deeper discounts while maintaining flexibility.
+
+### Risk Management
+1. **Never deploy all capital at once** - Scale in as price reaches each level
+2. **Use stop losses** - Consider setting stops 5-8% below Level 3 if market structure deteriorates
+3. **Monitor protocols** - If defensive shift triggers or no-trade warnings appear, reduce position sizes
+4. **Valuation matters** - Higher P/E and P/S at entry = higher risk. Adjust accordingly.
+
+### Market Regime Considerations
+- **Bull Market:** Focus on Levels 1-2 for entries
+- **Volatile/Uncertain Market:** Be patient, wait for Level 2-3
+- **Bear Market:** Level 3 only, or wait on sidelines if no-trade warning present
+
+---
+
+## 📝 Important Disclaimers
+
+### Risk Disclosure
+This analysis is for **educational and research purposes only**. It does NOT constitute:
+- Financial advice
+- Investment recommendations
+- Trading signals
+- Professional guidance
+
+### Limitations
+- Past performance does not guarantee future results
+- Technical analysis is probabilistic, not deterministic
+- Market conditions can change rapidly
+- Black swan events can invalidate all support levels
+- Options data reflects current positioning, which changes daily
+
+### Responsibility
+You are solely responsible for your trading decisions. The Value Sniper system is a **decision support tool**, not an automated trading system. Always:
+- Do your own research
+- Understand your risk tolerance
+- Consider your investment timeline
+- Consult with financial professionals if needed
+
+---
+
+## 📊 System Information
+
+**Analysis Engine:** Value Sniper v2.0  
+**Protocols Active:** 9 (Macro, Gamma, Options, Gaps, Sector, Momentum, Valuation, Trend, Breadth)  
+**Clustering Method:** K-Means (3 clusters)  
+**AI Provider:** {}
+
+---
+
+*Report generated by Value Sniper - Quantitative Entry System*  
+*For questions or feedback: github.com/DurdeuVlad/stock-support-calculator*
+""".format("Google Gemini 2.5 Flash" if ai_report else "Not enabled")
+    
+    return report
+
 # Main Content
 st.title(f"Sniper Analysis: {ticker}")
 
@@ -67,15 +342,42 @@ if run_btn:
                 
                 st.info(f"**🤖 AI Strategic Analysis:**\n\n{clean_analysis}")
 
+            # --- EXPORT FUNCTIONALITY ---
+            st.markdown("---")
+            
+            # Generate report once and store in session state to prevent reset
+            report_key = f'markdown_report_{ticker}_{bot.current_price}'
+            if report_key not in st.session_state:
+                st.session_state[report_key] = generate_markdown_report(ticker, bot.current_price, orders, bot, ai_report if enable_ai else None)
+            
+            export_col1, export_col2 = st.columns([3, 1])
+            
+            with export_col1:
+                st.caption("📄 Export complete analysis as markdown file for record-keeping and sharing")
+            
+            with export_col2:
+                st.download_button(
+                    label="📥 Export Report",
+                    data=st.session_state[report_key],
+                    file_name=f"{ticker}_sniper_report_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.md",
+                    mime="text/markdown",
+                    width="stretch",
+                    key=f"download_btn_{ticker}_{bot.current_price}"
+                )
+
             # --- 1. KEY LEVELS (Top Metrics) ---
             st.subheader("Key Sniper Levels")
             
             # Display Current Price first
             st.metric("Current Price", f"${bot.current_price:.2f}")
 
+            # Display No-Trade Warning if present
+            if 'No-Trade Warning' in bot.runtime_log:
+                st.error(f"**{bot.runtime_log['No-Trade Warning']}**")
+
             # Display Recommendation if available
             if 'Recommendation' in bot.runtime_log:
-                st.warning(f"**Recommendation:** {bot.runtime_log['Recommendation']}")
+                st.info(f"**Recommendation:** {bot.runtime_log['Recommendation']}")
 
             # Dynamic columns based on active levels (handles Defensive Shifts/Renaming)
             sorted_orders = sorted(orders.items(), key=lambda x: x[1]['price'], reverse=True)
@@ -99,17 +401,15 @@ if run_btn:
                 if delta_color_for_valuation == "off" and price_dict['estimated_pe'] > 0 and price_dict['estimated_ps'] > 0:
                      delta_color_for_valuation = "normal" # If not inverse, assume normal/good valuation at this level
 
-                # Apply strikethrough to price if Level 1 is invalidated
+                # Display price
                 display_price = f"${price_dict['price']:.2f}"
-                if price_dict.get('is_invalidated_l1'):
-                    display_price = f"~~{display_price}~~"
 
                 cols[i].metric(
                     label,
                     display_price,
-                    delta=f"-{price_dict['percent_drop']:.2f}% (P/E: {price_dict['estimated_pe']:.2f}, P/S: {price_dict['estimated_ps']:.2f})",
+                    delta=f"-{price_dict['percent_drop']:.2f}% | {price_dict.get('position_size', 'N/A')}",
                     delta_color=delta_color_for_valuation,
-                    help=f"Possibility: {price_dict['possibility']}"
+                    help=f"{price_dict['possibility']} | P/E: {price_dict['estimated_pe']:.2f}, P/S: {price_dict['estimated_ps']:.2f}"
                 )
             
             st.markdown("---")
