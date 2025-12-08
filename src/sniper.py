@@ -50,7 +50,7 @@ class TechSniperAI:
                 self.current_price = 0
                 return
 
-            # --- MACRO DATA (TTL: 30 mins) ---
+            # --- MACRO DATA (TTL: 15 mins) ---
             self.tnx = None
             self.vix = None
             
@@ -121,12 +121,12 @@ class TechSniperAI:
             info = self.stock.info
             self.fundamentals = {
                 'PE': info.get('trailingPE', 0),
-                'PS': info.get('priceToSalesTrailing12Months', 0)
+                'PS': info.get('priceToSalesTrailing12Months', 0),
+                'sharesOutstanding': info.get('sharesOutstanding', 0)
             }
-            # print(f"[FUNDAMENTALS] P/E: {self.fundamentals['PE']:.2f} | P/S: {self.fundamentals['PS']:.2f}")
         except Exception:
-            self.fundamentals = {'PE': 0, 'PS': 0}
-
+            self.fundamentals = {'PE': 0, 'PS': 0, 'sharesOutstanding': 0}
+            
     def _calculate_bollinger_bands(self, series, window=20, num_std=2):
         if series.empty: return pd.Series(), pd.Series()
         rolling_mean = series.rolling(window=window).mean()
@@ -276,7 +276,7 @@ class TechSniperAI:
         """Protocol H: Market Breadth (SPY vs RSP)"""
         if self.spy.empty or self.rsp.empty:
             self.runtime_log['Breadth Protocol'] = "Data Missing"
-            return True
+            return 0.0, True # Return 0.0 for breadth_delta and True for is_healthy if data is missing
 
         # Calculate trends (SMA50)
         spy_sma50 = self.spy['Close'].rolling(50).mean().iloc[-1]
@@ -287,6 +287,11 @@ class TechSniperAI:
         
         spy_uptrend = current_spy > spy_sma50
         rsp_downtrend = current_rsp < rsp_sma50
+
+        # Calculate breadth_delta for explicit check
+        spy_chg = (self.spy['Close'].iloc[-1] / self.spy['Close'].iloc[0] - 1) * 100
+        rsp_chg = (self.rsp['Close'].iloc[-1] / self.rsp['Close'].iloc[0] - 1) * 100
+        breadth_delta = spy_chg - rsp_chg # This is the breadth_gap
         
         if spy_uptrend and rsp_downtrend:
             status = "DIVERGENCE (Narrow Rally - RISK)"
@@ -297,7 +302,7 @@ class TechSniperAI:
             
         print(f"[BREADTH] Market Structure: {status}")
         self.runtime_log['Breadth Protocol'] = f"SPY Uptrend: {spy_uptrend} | RSP Downtrend: {rsp_downtrend} -> SIGNAL: {status}"
-        return is_healthy
+        return breadth_delta, is_healthy
 
     def calculate_max_pain(self):
         """Protocol C: Max Pain via Option Chain"""
@@ -450,6 +455,23 @@ class TechSniperAI:
             
         return report
 
+    def _calculate_valuation_ratios_at_price(self, target_price):
+        """Calculates estimated P/E and P/S at a given target price."""
+        current_pe = self.fundamentals.get('PE', 0)
+        current_ps = self.fundamentals.get('PS', 0)
+        
+        estimated_pe = 0
+        estimated_ps = 0
+
+        if self.current_price > 0: # Ensure current_price is not zero to avoid division by zero
+            if current_pe > 0:
+                estimated_pe = current_pe * (target_price / self.current_price)
+
+            if current_ps > 0:
+                estimated_ps = current_ps * (target_price / self.current_price)
+            
+        return estimated_pe, estimated_ps
+
     def generate_orders(self):
         if self.current_price == 0:
             return {}
@@ -459,7 +481,7 @@ class TechSniperAI:
         gamma_mod = self.analyze_gamma_regime()
         val_mod = self.analyze_valuation_regime()
         is_tech_strong = self.analyze_sector_strength()
-        is_market_healthy = self.analyze_market_breadth()
+        breadth_gap, is_market_healthy = self.analyze_market_breadth() # Get breadth_gap
         current_rsi = self.analyze_momentum_regime()
         current_adx = self.analyze_trend_strength()
         self.find_breakaway_gaps()
@@ -486,10 +508,11 @@ class TechSniperAI:
         kmeans.fit(np.array(valid_supports).reshape(-1, 1))
         centers = sorted(kmeans.cluster_centers_.flatten(), reverse=True)
 
-        # 3. Apply Sector Logic (Dynamic Aggression)
-        # Calculate Raw Prices first, then Sort
-        p1, p2, p3 = 0, 0, 0
-        l1_key, l2_key, l3_key = "", "", ""
+        # Calculate Level 4 (3-Sigma Crash) early for use in STANDARD MODE
+        rolling_std = self.df['Close'].rolling(20).std().iloc[-1]
+        level_4 = self.df['Close'].rolling(20).mean().iloc[-1] - (rolling_std * 3)
+
+        # 3. Apply Sector Logic (Dynamic Aggression) 
         
         # Protocol F: RSI Discounting
         rsi_mod = 1.0
@@ -501,18 +524,26 @@ class TechSniperAI:
         if current_adx > 30: # Strong Trend
              adx_mod = 0.98 # Widen margins slightly for strong momentum
         
+        orders_with_labels_and_values = []
+        risk_alert_message = "" # Initialize risk alert
+
         if is_tech_strong and is_market_healthy:
             # STANDARD MODE
-            l1_key = "Level 1 (Aggressive)"
+            l1_label = "Level 1 (Aggressive)"
             if current_rsi > 55:
-                l1_key = f"Level 1 (Aggressive - RSI Adjusted {rsi_mod:.2f}x)"
+                l1_label = f"Level 1 (Aggressive - RSI Adjusted {rsi_mod:.2f}x)"
             
-            l2_key = "Level 2 (Deep Value)"
-            l3_key = "Level 3 (Capitulation)"
+            # Check for Visual Invalidation due to Narrow Rally
+            if breadth_gap > 5.0:
+                l1_label = f"~~{l1_label}~~ (INVALID - Narrow Rally)"
+                risk_alert_message = "⚠️ RISK ALERT: Level 1 is invalidated due to weak market breadth. Focus buying power on Level 2 and Level 3."
             
-            p1 = centers[0] * macro_mod * gamma_mod * val_mod * rsi_mod * adx_mod
-            p2 = centers[1] * macro_mod * gamma_mod * val_mod
-            p3 = centers[2] * macro_mod * gamma_mod * val_mod
+            orders_with_labels_and_values.append(
+                (centers[0] * macro_mod * gamma_mod * rsi_mod * adx_mod, l1_label))
+            orders_with_labels_and_values.append(
+                (centers[1] * macro_mod * gamma_mod, "Level 2 (Deep Value)"))
+            orders_with_labels_and_values.append(
+                (level_4, "Level 3 (Capitulation)"))
             
         else:
             # DEFENSIVE SHIFT
@@ -520,28 +551,63 @@ class TechSniperAI:
             print(f"[RISK] {reason} Detected. shifting orders down (Deleting Level 1).")
             self.runtime_log['Sector Logic'] = f"{reason} Detected -> SHIFTING ORDERS DOWN (Deleting Aggressive Level)"
             
-            l1_key = "Level 1 (Value - Shifted)"
-            l2_key = "Level 2 (Capitulation - Shifted)"
-            l3_key = "Level 3 (Disaster/3-Sigma)"
-            
-            # Calculate Level 4 (3-Sigma Crash)
-            rolling_std = self.df['Close'].rolling(20).std().iloc[-1]
-            level_4 = self.df['Close'].rolling(20).mean().iloc[-1] - (rolling_std * 3)
-            
-            p1 = centers[1] * macro_mod * gamma_mod * val_mod # Old Level 2
-            p2 = centers[2] * macro_mod * gamma_mod * val_mod # Old Level 3
-            p3 = level_4 * val_mod # New Level 4
+            # Level 1 is effectively deleted/shifted, so no need for strikethrough in this branch
+            orders_with_labels_and_values.append(
+                (centers[1] * macro_mod * gamma_mod, "Level 1 (Value - Shifted)"))
+            orders_with_labels_and_values.append(
+                (centers[2] * macro_mod * gamma_mod, "Level 2 (Capitulation - Shifted)"))
+            orders_with_labels_and_values.append(
+                (level_4, "Level 3 (Disaster/3-Sigma)"))
+
 
         # WATERFALL SORT (Safety Mechanism)
-        # Ensure L1 > L2 > L3 regardless of individual discounts
-        final_prices = sorted([p1, p2, p3], reverse=True)
+        # Sort by value in descending order to ensure L1 > L2 > L3
+        orders_with_labels_and_values.sort(key=lambda x: x[0], reverse=True)
         
-        final_orders = {
-            l1_key: final_prices[0],
-            l2_key: final_prices[1],
-            l3_key: final_prices[2]
+        final_orders = {}
+        
+        # Define qualitative possibility for each level's rank
+        possibility_rank = {
+            0: "Normal Probability (Expected Pullback)", # Corresponds to the highest level
+            1: "Medium Probability (Significant Correction)", # Corresponds to the middle level
+            2: "Low Probability (Extreme Capitulation)" # Corresponds to the lowest level
         }
 
+        # Re-initialize the keys based on whether it's Standard or Defensive
+        # This logic determines the FINAL labels based on the sorted positions
+        if is_tech_strong and is_market_healthy:
+            final_labels_in_order = ["Level 1 (Aggressive)", "Level 2 (Deep Value)", "Level 3 (Capitulation)"]
+            # Apply strikethrough to the Level 1 label if it was invalidated
+            if "~~Level 1 (Aggressive)~~" in orders_with_labels_and_values[0][1]: # Check if original L1 label was marked for strikethrough
+                 final_labels_in_order[0] = orders_with_labels_and_values[0][1] # Use the strikethrough label
+
+        else: # Defensive Shift
+            final_labels_in_order = ["Level 1 (Value - Shifted)", "Level 2 (Capitulation - Shifted)", "Level 3 (Disaster/3-Sigma)"]
+
+        for i in range(3):
+            price_at_level = orders_with_labels_and_values[i][0] # Get sorted price
+            label_for_level = final_labels_in_order[i] # Use the fixed labels for the sorted positions
+            
+            percent_drop = 0
+            if self.current_price > 0:
+                percent_drop = ((self.current_price - price_at_level) / self.current_price) * 100
+
+            pe, ps = self._calculate_valuation_ratios_at_price(price_at_level)
+            final_orders[label_for_level] = {
+                'price': price_at_level,
+                'estimated_pe': pe,
+                'estimated_ps': ps,
+                'percent_drop': percent_drop,
+                'possibility': possibility_rank[i], # Assign possibility based on rank
+                'is_invalidated_l1': (risk_alert_message != "" and i==0) # Flag for dashboard to apply strikethrough on price
+            }
+        
+        # Add risk alert to runtime log if applicable
+        if risk_alert_message:
+            self.runtime_log['Recommendation'] = risk_alert_message
+        else:
+            self.runtime_log['Recommendation'] = "Focus buying power on Level 1, Level 2 and Level 3." # Default recommendation
+                
         return final_orders
 
 if __name__ == "__main__":
@@ -570,14 +636,23 @@ if __name__ == "__main__":
     if orders:
         print(f"\n>>> SNIPER ORDERS FOR {TARGET} (Current: ${bot.current_price:.2f}) <<<")
         for k, v in orders.items():
-            print(f"{k}: ${v:.2f}")
+            price_str = f"${v['price']:.2f}"
+            if v.get('is_invalidated_l1'):
+                price_str = f"~~{price_str}~~"
             
+            print(f"{k}: {price_str} (-{v['percent_drop']:.2f}%) (Est. P/E: {v['estimated_pe']:.2f}, Est. P/S: {v['estimated_ps']:.2f}) (Possibility: {v['possibility']})")
+        
+        if 'Recommendation' in bot.runtime_log:
+            print(f"\n{bot.runtime_log['Recommendation']}")
+
         if args.plot:
             plotter = SniperPlotter(bot)
             # Add final orders to log
             bot.runtime_log['FINAL ORDERS'] = orders
             plotter.log_steps(bot.runtime_log)
-            plotter.plot_sniper_view(orders)
+            # The plotter expects just prices, so we'll pass those.
+            plotter_orders = {k: v['price'] for k, v in orders.items()}
+            plotter.plot_sniper_view(plotter_orders)
             
         if args.ai:
             def cli_callback(msg):
@@ -587,7 +662,7 @@ if __name__ == "__main__":
             print("\n" + "="*50)
             print(f"   🤖 GEMINI STRATEGIC ANALYSIS: {TARGET}")
             print("="*50)
-            clean_md = lambda t: re.sub(r'\*\*|__', '', str(t))
+            clean_md = lambda t: re.sub(r'\[*\*|__', '', str(t)) # Corrected regex for markdown bold
             print(clean_md(report.get('strategic_analysis', 'Analysis Failed')))
             print("="*50 + "\n")
             

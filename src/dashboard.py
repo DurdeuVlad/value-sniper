@@ -68,12 +68,49 @@ if run_btn:
                 st.info(f"**🤖 AI Strategic Analysis:**\n\n{clean_analysis}")
 
             # --- 1. KEY LEVELS (Top Metrics) ---
+            st.subheader("Key Sniper Levels")
+            
+            # Display Current Price first
+            st.metric("Current Price", f"${bot.current_price:.2f}")
+
+            # Display Recommendation if available
+            if 'Recommendation' in bot.runtime_log:
+                st.warning(f"**Recommendation:** {bot.runtime_log['Recommendation']}")
+
             # Dynamic columns based on active levels (handles Defensive Shifts/Renaming)
-            sorted_orders = sorted(orders.items(), key=lambda x: x[1], reverse=True)
+            sorted_orders = sorted(orders.items(), key=lambda x: x[1]['price'], reverse=True)
             cols = st.columns(len(sorted_orders))
             
-            for i, (label, price) in enumerate(sorted_orders):
-                cols[i].metric(label, f"${price:.2f}")
+            for i, (label, price_dict) in enumerate(sorted_orders):
+                # Determine delta_color based on estimated P/E and P/S
+                delta_color_for_valuation = "off"
+                # Check for estimated P/E risk
+                if price_dict['estimated_pe'] > 50: # High PE
+                    delta_color_for_valuation = "inverse"
+                elif price_dict['estimated_pe'] > 25 and delta_color_for_valuation != "inverse": # Elevated PE, if not already inverse
+                    delta_color_for_valuation = "inverse"
+
+                # Check for estimated P/S risk (using thresholds from fcol2 for overall PS Logic)
+                if price_dict['estimated_ps'] > 30: # Extreme P/S
+                    delta_color_for_valuation = "inverse"
+                elif price_dict['estimated_ps'] > 15 and delta_color_for_valuation != "inverse": # Elevated P/S, if not already inverse
+                    delta_color_for_valuation = "inverse"
+
+                if delta_color_for_valuation == "off" and price_dict['estimated_pe'] > 0 and price_dict['estimated_ps'] > 0:
+                     delta_color_for_valuation = "normal" # If not inverse, assume normal/good valuation at this level
+
+                # Apply strikethrough to price if Level 1 is invalidated
+                display_price = f"${price_dict['price']:.2f}"
+                if price_dict.get('is_invalidated_l1'):
+                    display_price = f"~~{display_price}~~"
+
+                cols[i].metric(
+                    label,
+                    display_price,
+                    delta=f"-{price_dict['percent_drop']:.2f}% (P/E: {price_dict['estimated_pe']:.2f}, P/S: {price_dict['estimated_ps']:.2f})",
+                    delta_color=delta_color_for_valuation,
+                    help=f"Possibility: {price_dict['possibility']}"
+                )
             
             st.markdown("---")
             fcol1, fcol2 = st.columns(2)
@@ -210,14 +247,14 @@ if run_btn:
                             name=ticker)])
 
             # Add Support Lines
-            for label, price in orders.items():
+            for label, price_dict in orders.items():
                 color = 'blue' # Default
                 if 'Level 1' in label: color = 'orange'
                 elif 'Level 2' in label: color = 'green'
                 elif 'Level 3' in label: color = 'red'
                 elif 'Disaster' in label: color = 'darkred'
                 
-                fig.add_hline(y=price, line_dash="dash", line_color=color, annotation_text=label, annotation_position="bottom right")
+                fig.add_hline(y=price_dict['price'], line_dash="dash", line_color=color, annotation_text=label, annotation_position="bottom right")
 
             # Add SMA 200 (Calculated on full data, sliced for display)
             if len(bot.df) > 200:
@@ -370,15 +407,17 @@ if run_btn:
 
             with tab7:
                 st.subheader("AI Clustering Logic")
-                raw_signals = [x for x in bot.potential_supports if x < bot.current_price]
-                final_orders = list(orders.values())
+                # Need to extract only price values from the orders for plotting
+                # The orders dict now contains dicts, so we need to get the price
+                raw_signals_prices = [x for x in bot.potential_supports if x < bot.current_price and not np.isnan(x)]
+                final_orders_prices = [v['price'] for v in orders.values()]
                 
                 # Jitter for display
-                jitter = np.random.uniform(-0.1, 0.1, size=len(raw_signals))
+                jitter = np.random.uniform(-0.1, 0.1, size=len(raw_signals_prices))
                 
                 fig_ai = go.Figure()
-                fig_ai.add_trace(go.Scatter(x=raw_signals, y=jitter, mode='markers', name='Raw Signals', marker=dict(color='blue', size=10)))
-                fig_ai.add_trace(go.Scatter(x=final_orders, y=[0]*len(final_orders), mode='markers', name='Final Orders', marker=dict(symbol='star', color='red', size=20)))
+                fig_ai.add_trace(go.Scatter(x=raw_signals_prices, y=jitter, mode='markers', name='Raw Signals', marker=dict(color='blue', size=10)))
+                fig_ai.add_trace(go.Scatter(x=final_orders_prices, y=[0]*len(final_orders_prices), mode='markers', name='Final Orders', marker=dict(symbol='star', color='red', size=20)))
                 
                 fig_ai.update_yaxes(visible=False)
                 fig_ai.update_layout(title="K-Means Clustering Visualization", template="plotly_dark", height=300)
