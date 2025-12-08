@@ -28,6 +28,18 @@ class CacheManager:
             # print(f"[CACHE] Saved: {key}")
         except Exception as e:
             print(f"[CACHE] Error saving {key}: {e}")
+    
+    def delete(self, key):
+        """Delete a specific cache entry."""
+        path = self._get_path(key)
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+                return True
+            except Exception as e:
+                print(f"[CACHE] Error deleting {key}: {e}")
+                return False
+        return False
 
     def load(self, key, ttl_minutes=30):
         """

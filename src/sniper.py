@@ -306,7 +306,11 @@ class TechSniperAI:
         rsp_chg = (self.rsp['Close'].iloc[-1] / self.rsp['Close'].iloc[0] - 1) * 100
         breadth_delta = spy_chg - rsp_chg # This is the breadth_gap
         
-        if spy_uptrend and rsp_downtrend:
+        # Check for narrow rally (breadth gap > 5%)
+        if breadth_delta > 5.0:
+            status = "DIVERGENCE (Narrow Rally - RISK)"
+            is_healthy = False
+        elif spy_uptrend and rsp_downtrend:
             status = "DIVERGENCE (Narrow Rally - RISK)"
             is_healthy = False
         else:
@@ -340,13 +344,17 @@ class TechSniperAI:
                     
                     print(f"[OPTIONS] Max Pain Strike: ${max_pain} (Cached)")
                     self.potential_supports.append(max_pain)
-                    self.runtime_log['Options Protocol'] = f"Max Pain Strike: ${max_pain} (Put/Call Balance)"
+                    # Note: Expiry date not stored in cache, only available for live fetches
+                    self.runtime_log['Options Protocol'] = f"Max Pain Strike: ${max_pain} (Cached)"
                     return
 
             options = self.stock.options
             if not options: return
             target_date = options[min(len(options)-1, 4)] # Approx Monthly
             chain = self.stock.option_chain(target_date)
+            
+            # Store expiration date for reporting
+            self.options_expiry_date = target_date
             
             # Combine Calls and Puts
             if chain.calls.empty and chain.puts.empty: return
@@ -381,8 +389,17 @@ class TechSniperAI:
             for wall in oi_walls:
                 self.potential_supports.append(wall)
             
-            print(f"[OPTIONS] Found {len(oi_walls)} OI Walls (Max Pain: ${max_pain})")
-            self.runtime_log['Options Protocol'] = f"OI Walls Found: {len(oi_walls)} strikes (Max Pain: ${max_pain})"
+            # Calculate days until expiry
+            from datetime import datetime
+            try:
+                expiry_dt = datetime.strptime(target_date, '%Y-%m-%d')
+                days_to_expiry = (expiry_dt - datetime.now()).days
+                expiry_info = f" expires in {days_to_expiry} days"
+            except:
+                expiry_info = f" exp: {target_date}"
+            
+            print(f"[OPTIONS] Found {len(oi_walls)} OI Walls (Max Pain: ${max_pain}{expiry_info})")
+            self.runtime_log['Options Protocol'] = f"OI Walls Found: {len(oi_walls)} strikes (Max Pain: ${max_pain}{expiry_info})"
         except Exception as e:
             self.runtime_log['Options Protocol'] = f"Failed to calc Max Pain: {e}"
             pass
@@ -448,7 +465,7 @@ class TechSniperAI:
         if not self.llm_provider:
             return {}
 
-        # Check Cache (TTL: 24 Hours)
+        # Check Cache (TTL: 24 Hours) - only if use_cache is True
         cache_key = f"{self.ticker}_FULL_ANALYSIS_V2"
         
         if self.use_cache:
@@ -456,15 +473,22 @@ class TechSniperAI:
             if cached_report:
                 if progress_callback: progress_callback("Loaded cached analysis.")
                 return cached_report
+        else:
+            # If cache is disabled, delete any existing cached analysis to force fresh generation
+            try:
+                self.cache.delete(cache_key)
+            except:
+                pass
 
         print(f"\n[AI] Batched analysis for {self.ticker}...")
         
         # Inject Fundamentals
         self.runtime_log['Valuation'] = f"P/E: {self.fundamentals.get('PE', 0):.2f} | P/S: {self.fundamentals.get('PS', 0):.2f}"
         
-        # Prepare Data Package
+        # Prepare Data Package with all needed context
         data_package = {
             "ticker": self.ticker,
+            "current_price": self.current_price,
             "orders": orders,
             "logs": self.runtime_log,
             "options_context": self.runtime_log.get('Options Protocol', 'N/A'),
@@ -473,7 +497,7 @@ class TechSniperAI:
             "breadth_context": self.runtime_log.get('Breadth Protocol', 'N/A'),
             "trend_context": self.runtime_log.get('Trend Protocol', 'N/A'),
             "rsi_context": self.runtime_log.get('Momentum Protocol', 'N/A'),
-            "clustering_context": f"Final Orders: {orders}. Sector: {self.runtime_log.get('Sector Protocol', 'N/A')}"
+            "clustering_context": f"Sector: {self.runtime_log.get('Sector Protocol', 'N/A')}"
         }
         
         # Call API (Single Request)
@@ -588,9 +612,13 @@ class TechSniperAI:
         kmeans.fit(np.array(valid_supports).reshape(-1, 1))
         centers = sorted(kmeans.cluster_centers_.flatten(), reverse=True)
 
-        # Calculate Level 4 (3-Sigma Crash) early for use in STANDARD MODE
+        # Calculate Level 3 using midpoint strategy:
+        # 3-sigma alone (-43%) is too extreme for practical limit orders (apocalypse scenario)
+        # Midpoint between K-Means L2 and 3-sigma gives ~-32% (severe but realistic correction)
+        # This fills the gap between "deep value" and "never fills" zones
         rolling_std = self.df['Close'].rolling(20).std().iloc[-1]
-        level_4 = self.df['Close'].rolling(20).mean().iloc[-1] - (rolling_std * 3)
+        disaster_level = self.df['Close'].rolling(20).mean().iloc[-1] - (rolling_std * 3)
+        level_3_practical = (centers[1] + disaster_level) / 2
 
         # 3. UNIFIED RISK SCORE (Replaces multiplicative modifiers)
         risk_score = 0
@@ -629,7 +657,7 @@ class TechSniperAI:
             orders_with_labels_and_values.append(
                 (centers[1] * unified_discount, "Level 2 (Deep Value)"))
             orders_with_labels_and_values.append(
-                (level_4 * unified_discount, "Level 3 (Capitulation)"))
+                (level_3_practical * unified_discount, "Level 3 (Severe Correction)"))
             
         else:
             # DEFENSIVE SHIFT
@@ -637,12 +665,15 @@ class TechSniperAI:
             self.runtime_log['Sector Logic'] = f"{shift_reason} Detected -> SHIFTING ORDERS DOWN (Deleting Aggressive Level)"
             
             # Level 1 is effectively deleted/shifted
+            # Level 2 becomes midpoint between K-Means lowest and disaster level
+            level_2_defensive = (centers[2] + disaster_level) / 2
+            
             orders_with_labels_and_values.append(
                 (centers[1] * unified_discount, "Level 1 (Value - Shifted)"))
             orders_with_labels_and_values.append(
-                (centers[2] * unified_discount, "Level 2 (Capitulation - Shifted)"))
+                (level_2_defensive * unified_discount, "Level 2 (Deep Correction)"))
             orders_with_labels_and_values.append(
-                (level_4 * unified_discount, "Level 3 (Disaster/3-Sigma)"))
+                (level_3_practical * unified_discount, "Level 3 (Maximum Drawdown)"))
 
 
         # WATERFALL SORT (Safety Mechanism)
@@ -668,9 +699,9 @@ class TechSniperAI:
         
         # SIMPLIFIED POSSIBILITY LABELS (Non-probability sounding)
         possibility_rank = {
-            0: "Common Pullback Zone (-5% to -10%)",
-            1: "Significant Correction Zone (-10% to -20%)", 
-            2: "Extreme Capitulation Zone (-20%+)"
+            0: "Initial Dip Zone (-10% to -15%) - Common in bull markets",
+            1: "Deep Value Zone (-15% to -20%) - Typical correction territory", 
+            2: "Maximum Drawdown Zone (-25% to -30%) - Rare bear market scenario"
         }
         
         # POSITION SIZING GUIDANCE
@@ -682,9 +713,9 @@ class TechSniperAI:
 
         # Re-initialize the keys based on whether it's Standard or Defensive
         if not trigger_shift:
-            final_labels_in_order = ["Level 1 (Aggressive)", "Level 2 (Deep Value)", "Level 3 (Capitulation)"]
+            final_labels_in_order = ["Level 1 (Dip Entry)", "Level 2 (Deep Value)", "Level 3 (Bear Market Entry)"]
         else: # Defensive Shift
-            final_labels_in_order = ["Level 1 (Value - Shifted)", "Level 2 (Capitulation - Shifted)", "Level 3 (Disaster/3-Sigma)"]
+            final_labels_in_order = ["Level 1 (Conservative Entry)", "Level 2 (Deep Correction)", "Level 3 (Maximum Drawdown)"]
 
         for i in range(3):
             price_at_level = orders_with_labels_and_values[i][0] # Get sorted price

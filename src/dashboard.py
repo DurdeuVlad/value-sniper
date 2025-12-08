@@ -20,11 +20,67 @@ st.set_page_config(
 
 # Sidebar
 st.sidebar.title("🎯 Value Sniper")
-ticker = st.sidebar.text_input("Ticker Symbol", value="MSFT").upper()
+
+# Big Tech Quick Select
+BIG_TECH_STOCKS = {
+    "Microsoft (MSFT)": "MSFT",
+    "Apple (AAPL)": "AAPL",
+    "NVIDIA (NVDA)": "NVDA",
+    "Alphabet/Google (GOOGL)": "GOOGL",
+    "Amazon (AMZN)": "AMZN",
+    "Meta/Facebook (META)": "META",
+    "Tesla (TSLA)": "TSLA",
+    "Netflix (NFLX)": "NFLX",
+    "AMD (AMD)": "AMD",
+    "Intel (INTC)": "INTC",
+    "Salesforce (CRM)": "CRM",
+    "Oracle (ORCL)": "ORCL",
+    "Adobe (ADBE)": "ADBE",
+    "Cisco (CSCO)": "CSCO",
+    "Custom...": None
+}
+
+# Dropdown for quick select
+quick_select = st.sidebar.selectbox(
+    "Quick Select (Big Tech)",
+    options=list(BIG_TECH_STOCKS.keys()),
+    index=0  # Default to MSFT
+)
+
+# Get ticker from dropdown or allow custom input
+if BIG_TECH_STOCKS[quick_select] is None:
+    ticker = st.sidebar.text_input("Custom Ticker Symbol", value="MSFT").upper()
+else:
+    ticker = BIG_TECH_STOCKS[quick_select]
+    st.sidebar.text(f"Ticker: {ticker}")
+
 timeframe = st.sidebar.selectbox("Lookback Period", ["6mo", "1y", "2y", "5y", "max"], index=1)
 use_cache = st.sidebar.checkbox("Use Cache", value=True)
 enable_ai = st.sidebar.checkbox("Enable AI Analysis", value=False)
 run_btn = st.sidebar.button("Run Analysis")
+
+# Auto-run if cache is available and no explicit run requested yet
+if 'last_ticker' not in st.session_state:
+    st.session_state.last_ticker = None
+    st.session_state.auto_ran = False
+
+# Check if ticker changed
+ticker_changed = st.session_state.last_ticker != ticker
+if ticker_changed:
+    st.session_state.last_ticker = ticker
+    st.session_state.auto_ran = False
+
+# Auto-run logic: run if cache available and ticker just changed
+auto_run = False
+if use_cache and ticker_changed and not st.session_state.auto_ran:
+    # Check if cache exists for this ticker
+    from utils.caching import CacheManager
+    cache = CacheManager()
+    cache_key = f"{ticker}_OHLCV_5Y"
+    cached_data = cache.load(cache_key, ttl_minutes=15)
+    if cached_data is not None:
+        auto_run = True
+        st.session_state.auto_ran = True
 
 # Export functionality helper
 def generate_markdown_report(ticker, current_price, orders, bot, ai_report=None):
@@ -304,7 +360,10 @@ You are solely responsible for your trading decisions. The Value Sniper system i
 # Main Content
 st.title(f"Sniper Analysis: {ticker}")
 
-if run_btn:
+if run_btn or auto_run:
+    if auto_run:
+        st.info("📦 Using cached data - running analysis automatically...")
+    
     with st.spinner(f"Analyzing {ticker}..."):
         # Setup AI
         ai_provider = None
@@ -335,12 +394,20 @@ if run_btn:
                 if isinstance(raw_analysis, dict):
                     formatted_analysis = ""
                     for k, v in raw_analysis.items():
-                        formatted_analysis += f"* {k}: {v}\n\n"
-                    clean_analysis = re.sub(r'\*\*|__', '', formatted_analysis)
+                        formatted_analysis += f"**{k}:** {v}\n\n"
+                    clean_analysis = formatted_analysis
                 else:
-                    clean_analysis = re.sub(r'\*\*|__', '', str(raw_analysis))
+                    # Clean up escape sequences and normalize formatting
+                    clean_text = str(raw_analysis)
+                    # Replace escaped newlines with actual newlines
+                    clean_text = clean_text.replace('\\n', '\n')
+                    # Remove any markdown formatting the AI might add despite instructions
+                    clean_text = clean_text.replace('**', '').replace('__', '')
+                    clean_analysis = clean_text
                 
-                st.info(f"**🤖 AI Strategic Analysis:**\n\n{clean_analysis}")
+                # Display AI analysis in expandable container for better readability
+                with st.expander("🤖 AI Strategic Analysis", expanded=True):
+                    st.text(clean_analysis)  # Use st.text for plain text formatting
 
             # --- EXPORT FUNCTIONALITY ---
             st.markdown("---")
