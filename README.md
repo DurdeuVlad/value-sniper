@@ -71,12 +71,21 @@ Full methodology and data in [RESULTS.md](RESULTS.md).
 | Scenario | Period | Sniper Result | Buy & Hold |
 |---|---|---|---|
 | Bull market | 2023-2026 | +11% to +47.6% (83% win rate) | +139.7% |
-| Bear market | 2022 | -37.1% (mostly cash, refused most entries) | **-42.4%** |
+| Bear market | 2022 only | -37.1% (mostly cash, refused most entries) | **-42.4%** |
 | Recovery | mid-2022 to 2024 | +15.5% to +52.8% (**100% win rate**) | +111.2% |
+| **Blood in the streets** | **2022 crash, hold to 2026** | **AAPL: +107-119% vs +79% B&H** | +204% avg* |
 
-**The number that matters most:** every trade the Sniper entered and exited (profit target hit) closed at a gain. 100% closed-trade win rate across bull and recovery markets. The bear market loss (-37.1%) comes from open positions still held at period end, not from trades exited at the wrong price. See [RESULTS.md](RESULTS.md) for the full explanation.
+*\* Buy & Hold average dominated by NVDA's +609% AI-structural outlier. See below.*
 
-Buy-and-hold in a three-year bull market outperforms on total return. This is expected. The Sniper's edge is a documented thesis at entry and the discipline to refuse entries when the market structure is broken.
+**The number that matters most:** every trade the Sniper entered and exited (profit target hit) closed at a gain. 100% closed-trade win rate across bull and recovery markets.
+
+### The NVDA caveat — and why it matters
+
+The extended bear-to-recovery test reveals something important. For **AAPL and MSFT**, the Sniper waited through the crash, entered at genuine structural support, and outperformed buy-and-hold by 30–40 percentage points when held to 2026. That is the thesis working exactly as intended.
+
+For **NVDA**, buy-and-hold returned +609% and no entry system comes close. NVDA underwent a fundamental business transformation — gaming chip maker to AI compute monopoly. That is a macro structural call, not a technical entry opportunity. The Sniper is not designed to beat NVDA. It is designed to give you a better entry into AAPL.
+
+**The honest use case:** use the Sniper for concentrated entries into quality Nasdaq-100 names at genuine structural support. Keep your AI/structural macro positions as pure buy-and-hold — they operate on different logic entirely. See [RESULTS.md](RESULTS.md) for the full per-ticker breakdown.
 
 ---
 
