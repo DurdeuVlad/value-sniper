@@ -1,20 +1,22 @@
 """
 Value Sniper — Strategy Benchmark
 
-Simulates the full compound trading cycle:
-  1. Run sniper at start date → get 3 support levels
-  2. Wait for price to hit the nearest level (entry)
-  3. Wait for price to rise X% from entry (exit / take-profit)
-  4. Re-run sniper from exit date → new levels
-  5. Repeat until end of period
+Compares Value Sniper against 14 entry strategies across two groups:
 
-Tests 4 profit targets: +5%, +10%, +15%, +20%
-Tests multiple tickers and start points.
+  Hold Forever — one entry per period, hold to end date (tests pure entry quality)
+    Buy & Hold, Ticker DCA, SPY DCA, Sniper Hold, Breakout 20d, RSI>50,
+    SMA200 Bounce, Golden Cross, Vol Surge
+
+  Sell at +X%, Re-enter — compound cycling at each profit target
+    Immediate Rebuy, Random Entry, Pullback -5%, DCA+Exit, Breakout 20d,
+    RSI>50, SMA200 Bounce, Golden Cross, Vol Surge
+
+Default targets: +5%, +10%, +25%, +50%
 
 Usage:
   python src/benchmark.py
-  python src/benchmark.py --tickers MSFT AAPL NVDA --start 2023-01-01 --end 2026-01-01
-  python src/benchmark.py --targets 5 10 15 20 --capital 10000
+  python src/benchmark.py --tickers MSFT AAPL NVDA --starts 2023-01-01 --end 2026-01-01
+  python src/benchmark.py --targets 10 25 50 --capital 10000
 """
 
 import argparse
@@ -22,7 +24,7 @@ import os
 import sys
 import io
 import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Optional
 
@@ -124,6 +126,41 @@ def _annualized(total_return_pct: float, days: int) -> float:
     return round(((1 + r) ** (1 / years) - 1) * 100, 1)
 
 
+def _compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(com=period - 1, min_periods=period).mean()
+    avg_loss = loss.ewm(com=period - 1, min_periods=period).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan).fillna(1e-10)
+    return 100 - (100 / (1 + rs))
+
+
+def _yearly_from_caps(year_caps: dict, initial_capital: float) -> dict:
+    """Convert {year: end_capital} snapshots to {year: pct_return_that_year}."""
+    if not year_caps:
+        return {}
+    yearly = {}
+    prev = initial_capital
+    for yr in sorted(year_caps):
+        cap = year_caps[yr]
+        yearly[yr] = round((cap - prev) / prev * 100, 1)
+        prev = cap
+    return yearly
+
+
+def _ohlcv_yearly(df: pd.DataFrame, entry_date, shares: float,
+                  initial_capital: float) -> dict:
+    """For a buy-and-hold position, compute year-end capital from OHLCV closes."""
+    ts = entry_date if hasattr(entry_date, 'year') else pd.Timestamp(entry_date)
+    if df.index.tz and getattr(ts, 'tz', None) is None:
+        ts = ts.tz_localize('UTC')
+    year_caps = {}
+    for dt, row in df[df.index >= ts].iterrows():
+        year_caps[dt.year] = shares * float(row['Close'])
+    return _yearly_from_caps(year_caps, initial_capital)
+
+
 # ─── baseline simulators ─────────────────────────────────────────────────────
 
 @dataclass
@@ -141,6 +178,7 @@ class BaselineResult:
     avg_hold_days: float
     max_drawdown_pct: float
     note: str = ""
+    yearly_returns: dict = field(default_factory=dict)
 
 
 def _baseline_result(ticker, label, start, end, initial, final, n_trades=1,
@@ -175,8 +213,10 @@ def baseline_buy_hold(ticker: str, start_date: str, end_date: str,
             max_dd = dd
 
     days = (df.index[-1] - df.index[0]).days
-    return _baseline_result(ticker, "Buy&Hold", start_date, end_date,
-                            initial_capital, final, 1, 100.0, days, round(max_dd, 1))
+    r = _baseline_result(ticker, "Buy&Hold", start_date, end_date,
+                         initial_capital, final, 1, 100.0, days, round(max_dd, 1))
+    r.yearly_returns = _ohlcv_yearly(df, df.index[0], shares, initial_capital)
+    return r
 
 
 def baseline_spy_dca(start_date: str, end_date: str,
@@ -214,10 +254,41 @@ def baseline_spy_dca(start_date: str, end_date: str,
         dd = (peak - c) / peak * 100
         if dd > max_dd: max_dd = dd
 
-    return _baseline_result("SPY", "SPY DCA", start_date, end_date,
-                            initial_capital, final, len(dates), 100.0,
-                            (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days / len(dates),
-                            round(max_dd, 1), f"{len(dates)} monthly buys")
+    r = _baseline_result("SPY", "SPY DCA", start_date, end_date,
+                         initial_capital, final, len(dates), 100.0,
+                         (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days / len(dates),
+                         round(max_dd, 1), f"{len(dates)} monthly buys")
+    # Approximate yearly: recompute portfolio value year by year
+    df_spy = _fetch_ohlcv("SPY", start_date, end_date)
+    if not df_spy.empty:
+        year_caps: dict = {}
+        running_shares = 0.0
+        slice_amt = initial_capital / len(dates)
+        di = 0
+        for d in dates:
+            ts2 = pd.Timestamp(d)
+            if df_spy.index.tz and ts2.tz is None:
+                ts2 = ts2.tz_localize('UTC')
+            ix = df_spy.index.searchsorted(ts2)
+            if ix >= len(df_spy): ix = len(df_spy) - 1
+            running_shares += slice_amt / float(df_spy['Open'].iloc[ix])
+        # Re-walk for per-year snapshot using cumulative shares after each purchase
+        running_shares2 = 0.0
+        date_idx = 0
+        for i, (dt, row) in enumerate(df_spy.iterrows()):
+            while date_idx < len(dates):
+                ts2 = pd.Timestamp(dates[date_idx])
+                if df_spy.index.tz and ts2.tz is None:
+                    ts2 = ts2.tz_localize('UTC')
+                if dt >= ts2:
+                    running_shares2 += slice_amt / float(df_spy['Open'].iloc[i])
+                    date_idx += 1
+                else:
+                    break
+            if running_shares2 > 0:
+                year_caps[dt.year] = running_shares2 * float(row['Close'])
+        r.yearly_returns = _yearly_from_caps(year_caps, initial_capital)
+    return r
 
 
 def baseline_ticker_dca(ticker: str, start_date: str, end_date: str,
@@ -254,10 +325,28 @@ def baseline_ticker_dca(ticker: str, start_date: str, end_date: str,
         dd = (peak - c) / peak * 100
         if dd > max_dd: max_dd = dd
 
-    return _baseline_result(ticker, "DCA", start_date, end_date,
-                            initial_capital, final, len(dates), 100.0,
-                            (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days / len(dates),
-                            round(max_dd, 1), f"{len(dates)} monthly buys")
+    r = _baseline_result(ticker, "DCA", start_date, end_date,
+                         initial_capital, final, len(dates), 100.0,
+                         (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days / len(dates),
+                         round(max_dd, 1), f"{len(dates)} monthly buys")
+    year_caps2: dict = {}
+    running_sh = 0.0
+    slice_amt2 = initial_capital / len(dates)
+    date_idx2 = 0
+    for i2, (dt2, row2) in enumerate(df.iterrows()):
+        while date_idx2 < len(dates):
+            ts3 = pd.Timestamp(dates[date_idx2])
+            if df.index.tz and ts3.tz is None:
+                ts3 = ts3.tz_localize('UTC')
+            if dt2 >= ts3:
+                running_sh += slice_amt2 / float(df['Open'].iloc[i2])
+                date_idx2 += 1
+            else:
+                break
+        if running_sh > 0:
+            year_caps2[dt2.year] = running_sh * float(row2['Close'])
+    r.yearly_returns = _yearly_from_caps(year_caps2, initial_capital)
+    return r
 
 
 def baseline_random_entry(ticker: str, start_date: str, end_date: str,
@@ -352,6 +441,7 @@ def baseline_pullback_entry(ticker: str, start_date: str, end_date: str,
     hold_days_list = []
     max_capital = initial_capital
     max_dd = 0.0
+    year_caps: dict = {}
     idx = 20  # need 20 days for rolling high
 
     while idx < len(df) - 1:
@@ -392,6 +482,7 @@ def baseline_pullback_entry(ticker: str, start_date: str, end_date: str,
             max_capital = max(max_capital, capital)
             dd = (max_capital - capital) / max_capital * 100
             max_dd = max(max_dd, dd)
+            year_caps[df.index[min(idx, len(df)-1)].year] = capital
         else:
             idx += 1
 
@@ -401,7 +492,7 @@ def baseline_pullback_entry(ticker: str, start_date: str, end_date: str,
     days       = (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days
     ann        = _annualized(total, days)
 
-    return BaselineResult(
+    r = BaselineResult(
         ticker=ticker,
         label=f"Pullback+{int(profit_target_pct)}%",
         start_date=start_date,
@@ -416,6 +507,753 @@ def baseline_pullback_entry(ticker: str, start_date: str, end_date: str,
         max_drawdown_pct=round(max_dd, 1),
         note=f"-{pullback_pct:.0f}% from 20d high trigger",
     )
+    r.yearly_returns = _yearly_from_caps(year_caps, initial_capital)
+    return r
+
+
+def baseline_immediate_rebuy(ticker: str, start_date: str, end_date: str,
+                              profit_target_pct: float,
+                              initial_capital: float) -> BaselineResult:
+    """Dumbest re-entry: sell at target, buy next open, repeat. Lower bound baseline."""
+    df = _fetch_ohlcv(ticker, start_date, end_date)
+    if df.empty:
+        return _baseline_result(ticker, f"ImmediateRebuy+{int(profit_target_pct)}%",
+                                start_date, end_date, initial_capital, initial_capital)
+
+    capital = initial_capital
+    trades = wins = 0
+    hold_days_list = []
+    max_capital = initial_capital
+    max_dd = 0.0
+    year_caps: dict = {}
+    idx = 0
+
+    while idx < len(df) - 1:
+        entry_price = float(df['Open'].iloc[idx])
+        if entry_price <= 0:
+            idx += 1
+            continue
+        target = entry_price * (1 + profit_target_pct / 100)
+        entry_date = df.index[idx]
+        exit_idx = None
+        for j in range(idx + 1, len(df)):
+            if df['High'].iloc[j] >= target:
+                exit_idx = j
+                break
+        if exit_idx is not None:
+            pnl = profit_target_pct
+            hold = (df.index[exit_idx] - entry_date).days
+            wins += 1
+            idx = exit_idx
+        else:
+            pnl = (float(df['Close'].iloc[-1]) - entry_price) / entry_price * 100
+            hold = (df.index[-1] - entry_date).days
+            idx = len(df)
+        capital *= (1 + pnl / 100)
+        trades += 1
+        hold_days_list.append(hold)
+        max_capital = max(max_capital, capital)
+        max_dd = max(max_dd, (max_capital - capital) / max_capital * 100)
+        exit_dt = df.index[min(idx, len(df)-1)]
+        year_caps[exit_dt.year] = capital
+
+    win_rate = round(wins / trades * 100, 1) if trades else 0.0
+    avg_hold = round(float(np.mean(hold_days_list)), 1) if hold_days_list else 0.0
+    days = (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days
+    total = round((capital - initial_capital) / initial_capital * 100, 1)
+    r = BaselineResult(
+        ticker=ticker, label=f"ImmediateRebuy+{int(profit_target_pct)}%",
+        start_date=start_date, end_date=end_date,
+        initial_capital=initial_capital, final_capital=round(capital, 2),
+        total_return_pct=total, annualized_return_pct=_annualized(total, days),
+        n_trades=trades, win_rate_pct=win_rate, avg_hold_days=avg_hold,
+        max_drawdown_pct=round(max_dd, 1), note="buy open, sell at target, repeat",
+    )
+    r.yearly_returns = _yearly_from_caps(year_caps, initial_capital)
+    return r
+
+
+def baseline_dca_with_exit(ticker: str, start_date: str, end_date: str,
+                            profit_target_pct: float,
+                            initial_capital: float) -> BaselineResult:
+    """Monthly DCA accumulation with compound exit: when position hits +X%, sell all and restart."""
+    from backtest import generate_monthly_dates
+    df = _fetch_ohlcv(ticker, start_date, end_date)
+    if df.empty:
+        return _baseline_result(ticker, f"DCA+{int(profit_target_pct)}%",
+                                start_date, end_date, initial_capital, initial_capital)
+
+    monthly_dates = generate_monthly_dates(start_date, end_date)
+    if not monthly_dates:
+        return _baseline_result(ticker, f"DCA+{int(profit_target_pct)}%",
+                                start_date, end_date, initial_capital, initial_capital,
+                                note="no monthly dates")
+
+    slice_amount = initial_capital / len(monthly_dates)
+    capital = initial_capital
+    trades = wins = 0
+    hold_days_list = []
+    max_capital = initial_capital
+    max_dd = 0.0
+
+    # State for current accumulation cycle
+    shares = 0.0
+    total_cost = 0.0
+    cycle_start_date = None
+    monthly_idx = 0  # pointer into monthly_dates
+
+    for idx in range(len(df)):
+        row_date = df.index[idx]
+        row_date_str = row_date.strftime('%Y-%m-%d') if hasattr(row_date, 'strftime') else str(row_date)[:10]
+
+        # Buy monthly slice if this day matches (or is past) the next monthly date
+        while monthly_idx < len(monthly_dates):
+            md = monthly_dates[monthly_idx]
+            ts = pd.Timestamp(md)
+            if df.index.tz and ts.tz is None:
+                ts = ts.tz_localize('UTC')
+            if row_date >= ts:
+                buy_price = float(df['Open'].iloc[idx])
+                if buy_price > 0 and capital >= slice_amount:
+                    bought = slice_amount / buy_price
+                    shares += bought
+                    total_cost += slice_amount
+                    capital -= slice_amount
+                    if cycle_start_date is None:
+                        cycle_start_date = row_date
+                monthly_idx += 1
+            else:
+                break
+
+        # Check if current position hits profit target
+        if shares > 0 and total_cost > 0:
+            avg_cost = total_cost / shares
+            target_price = avg_cost * (1 + profit_target_pct / 100)
+            if float(df['High'].iloc[idx]) >= target_price:
+                proceeds = shares * target_price
+                pnl = (proceeds - total_cost) / total_cost * 100
+                hold = (row_date - cycle_start_date).days if cycle_start_date else 0
+                capital += proceeds
+                trades += 1
+                if pnl > 0:
+                    wins += 1
+                hold_days_list.append(hold)
+                # Reset cycle
+                shares = 0.0
+                total_cost = 0.0
+                cycle_start_date = None
+                max_capital = max(max_capital, capital)
+                max_dd = max(max_dd, (max_capital - capital) / max_capital * 100)
+
+    # Close any open position at end
+    if shares > 0:
+        final_price = float(df['Close'].iloc[-1])
+        capital += shares * final_price
+        trades += 1
+        hold_days_list.append(
+            (df.index[-1] - cycle_start_date).days if cycle_start_date else 0)
+
+    win_rate = round(wins / trades * 100, 1) if trades else 0.0
+    avg_hold = round(float(np.mean(hold_days_list)), 1) if hold_days_list else 0.0
+    days = (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days
+    total = round((capital - initial_capital) / initial_capital * 100, 1)
+    return BaselineResult(
+        ticker=ticker, label=f"DCA+{int(profit_target_pct)}%",
+        start_date=start_date, end_date=end_date,
+        initial_capital=initial_capital, final_capital=round(capital, 2),
+        total_return_pct=total, annualized_return_pct=_annualized(total, days),
+        n_trades=trades, win_rate_pct=win_rate, avg_hold_days=avg_hold,
+        max_drawdown_pct=round(max_dd, 1),
+        note=f"monthly DCA, exit at +{int(profit_target_pct)}% avg cost",
+    )
+
+
+def baseline_breakout_entry(ticker: str, start_date: str, end_date: str,
+                             profit_target_pct: float, initial_capital: float,
+                             breakout_window: int = 20,
+                             hold_to_end: bool = False) -> BaselineResult:
+    """FOMO buyer: buy when price breaks above N-day rolling high."""
+    label_suffix = "Hold" if hold_to_end else f"+{int(profit_target_pct)}%"
+    label = f"Breakout{breakout_window}d {label_suffix}"
+
+    df = _fetch_ohlcv(ticker, start_date, end_date)
+    if df.empty or len(df) <= breakout_window + 1:
+        return _baseline_result(ticker, label, start_date, end_date,
+                                initial_capital, initial_capital,
+                                note=f"no breakout signal in period")
+
+    rolling_high = df['High'].rolling(breakout_window).max().shift(1)
+    capital = initial_capital
+    trades = wins = 0
+    hold_days_list = []
+    max_capital = initial_capital
+    max_dd = 0.0
+    year_caps: dict = {}
+    ht_entry_date = None
+    ht_shares = 0.0
+    idx = breakout_window  # skip NaN window
+
+    while idx < len(df) - 1:
+        rh = rolling_high.iloc[idx]
+        if pd.isna(rh):
+            idx += 1
+            continue
+        if float(df['High'].iloc[idx]) >= float(rh):
+            entry_price = float(df['Open'].iloc[idx + 1])
+            if entry_price <= 0:
+                idx += 1
+                continue
+            entry_date = df.index[idx + 1]
+            if hold_to_end:
+                ht_shares = initial_capital / entry_price
+                ht_entry_date = entry_date
+                exit_price = float(df['Close'].iloc[-1])
+                pnl = (exit_price - entry_price) / entry_price * 100
+                hold = (df.index[-1] - entry_date).days
+                capital *= (1 + pnl / 100)
+                trades += 1
+                if pnl > 0: wins += 1
+                hold_days_list.append(hold)
+                break
+            else:
+                target = entry_price * (1 + profit_target_pct / 100)
+                exit_idx = None
+                for j in range(idx + 2, len(df)):
+                    if df['High'].iloc[j] >= target:
+                        exit_idx = j
+                        break
+                if exit_idx is not None:
+                    pnl = profit_target_pct
+                    hold = (df.index[exit_idx] - entry_date).days
+                    wins += 1
+                    idx = exit_idx
+                else:
+                    pnl = (float(df['Close'].iloc[-1]) - entry_price) / entry_price * 100
+                    hold = (df.index[-1] - entry_date).days
+                    idx = len(df)
+                capital *= (1 + pnl / 100)
+                trades += 1
+                hold_days_list.append(hold)
+                max_capital = max(max_capital, capital)
+                max_dd = max(max_dd, (max_capital - capital) / max_capital * 100)
+                year_caps[df.index[min(idx, len(df)-1)].year] = capital
+        else:
+            idx += 1
+
+    if not trades:
+        return _baseline_result(ticker, label, start_date, end_date,
+                                initial_capital, initial_capital,
+                                note=f"no {breakout_window}d breakout in period")
+
+    win_rate = round(wins / trades * 100, 1) if trades else 0.0
+    avg_hold = round(float(np.mean(hold_days_list)), 1) if hold_days_list else 0.0
+    days = (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days
+    total = round((capital - initial_capital) / initial_capital * 100, 1)
+    r = BaselineResult(
+        ticker=ticker, label=label,
+        start_date=start_date, end_date=end_date,
+        initial_capital=initial_capital, final_capital=round(capital, 2),
+        total_return_pct=total, annualized_return_pct=_annualized(total, days),
+        n_trades=trades, win_rate_pct=win_rate, avg_hold_days=avg_hold,
+        max_drawdown_pct=round(max_dd, 1),
+        note=f"new {breakout_window}d high trigger",
+    )
+    r.yearly_returns = (_ohlcv_yearly(df, ht_entry_date, ht_shares, initial_capital)
+                        if hold_to_end else _yearly_from_caps(year_caps, initial_capital))
+    return r
+
+
+def baseline_ath_breakout_entry(ticker: str, start_date: str, end_date: str,
+                                 profit_target_pct: float, initial_capital: float,
+                                 hold_to_end: bool = False) -> BaselineResult:
+    """Buy on new 52-week high. Strongest FOMO signal."""
+    r = baseline_breakout_entry(ticker, start_date, end_date, profit_target_pct,
+                                initial_capital, breakout_window=252,
+                                hold_to_end=hold_to_end)
+    r.label = "52wkBreakout Hold" if hold_to_end else f"52wkBreakout+{int(profit_target_pct)}%"
+    r.note = "new 52-week high trigger"
+    return r
+
+
+def baseline_rsi_entry(ticker: str, start_date: str, end_date: str,
+                        profit_target_pct: float, initial_capital: float,
+                        rsi_period: int = 14, rsi_threshold: float = 50.0,
+                        hold_to_end: bool = False) -> BaselineResult:
+    """Trend-follower: buy when RSI crosses above threshold (uptrend confirmation)."""
+    label_suffix = "Hold" if hold_to_end else f"+{int(profit_target_pct)}%"
+    label = f"RSI>{int(rsi_threshold)} {label_suffix}"
+
+    df = _fetch_ohlcv(ticker, start_date, end_date)
+    if df.empty or len(df) <= rsi_period + 2:
+        return _baseline_result(ticker, label, start_date, end_date,
+                                initial_capital, initial_capital,
+                                note=f"no RSI>{int(rsi_threshold)} cross in period")
+
+    rsi = _compute_rsi(df['Close'], rsi_period)
+    capital = initial_capital
+    trades = wins = 0
+    hold_days_list = []
+    max_capital = initial_capital
+    max_dd = 0.0
+    year_caps: dict = {}
+    ht_entry_date = None
+    ht_shares = 0.0
+    idx = rsi_period + 1
+
+    while idx < len(df) - 1:
+        prev_rsi = rsi.iloc[idx - 1]
+        curr_rsi = rsi.iloc[idx]
+        if pd.isna(prev_rsi) or pd.isna(curr_rsi):
+            idx += 1
+            continue
+        if float(prev_rsi) < rsi_threshold and float(curr_rsi) >= rsi_threshold:
+            entry_price = float(df['Open'].iloc[idx + 1])
+            if entry_price <= 0:
+                idx += 1
+                continue
+            entry_date = df.index[idx + 1]
+            if hold_to_end:
+                ht_shares = initial_capital / entry_price
+                ht_entry_date = entry_date
+                exit_price = float(df['Close'].iloc[-1])
+                pnl = (exit_price - entry_price) / entry_price * 100
+                hold = (df.index[-1] - entry_date).days
+                capital *= (1 + pnl / 100)
+                trades += 1
+                if pnl > 0: wins += 1
+                hold_days_list.append(hold)
+                break
+            else:
+                target = entry_price * (1 + profit_target_pct / 100)
+                exit_idx = None
+                for j in range(idx + 2, len(df)):
+                    if df['High'].iloc[j] >= target:
+                        exit_idx = j
+                        break
+                if exit_idx is not None:
+                    pnl = profit_target_pct
+                    hold = (df.index[exit_idx] - entry_date).days
+                    wins += 1
+                    idx = exit_idx
+                else:
+                    pnl = (float(df['Close'].iloc[-1]) - entry_price) / entry_price * 100
+                    hold = (df.index[-1] - entry_date).days
+                    idx = len(df)
+                capital *= (1 + pnl / 100)
+                trades += 1
+                hold_days_list.append(hold)
+                max_capital = max(max_capital, capital)
+                max_dd = max(max_dd, (max_capital - capital) / max_capital * 100)
+                year_caps[df.index[min(idx, len(df)-1)].year] = capital
+        else:
+            idx += 1
+
+    if not trades:
+        return _baseline_result(ticker, label, start_date, end_date,
+                                initial_capital, initial_capital,
+                                note=f"no RSI>{int(rsi_threshold)} cross in period")
+
+    win_rate = round(wins / trades * 100, 1) if trades else 0.0
+    avg_hold = round(float(np.mean(hold_days_list)), 1) if hold_days_list else 0.0
+    days = (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days
+    total = round((capital - initial_capital) / initial_capital * 100, 1)
+    r = BaselineResult(
+        ticker=ticker, label=label,
+        start_date=start_date, end_date=end_date,
+        initial_capital=initial_capital, final_capital=round(capital, 2),
+        total_return_pct=total, annualized_return_pct=_annualized(total, days),
+        n_trades=trades, win_rate_pct=win_rate, avg_hold_days=avg_hold,
+        max_drawdown_pct=round(max_dd, 1),
+        note=f"RSI({rsi_period}) cross above {rsi_threshold:.0f}",
+    )
+    r.yearly_returns = (_ohlcv_yearly(df, ht_entry_date, ht_shares, initial_capital)
+                        if hold_to_end else _yearly_from_caps(year_caps, initial_capital))
+    return r
+
+
+def baseline_sma200_bounce(ticker: str, start_date: str, end_date: str,
+                            profit_target_pct: float, initial_capital: float,
+                            hold_to_end: bool = False) -> BaselineResult:
+    """Classic support: buy when price touches SMA-200 intraday then closes above it."""
+    label_suffix = "Hold" if hold_to_end else f"+{int(profit_target_pct)}%"
+    label = f"SMA200Bounce {label_suffix}"
+
+    extended_start = (pd.Timestamp(start_date) - timedelta(days=310)).strftime('%Y-%m-%d')
+    df_ext = _fetch_ohlcv(ticker, extended_start, end_date)
+    if df_ext.empty or len(df_ext) < 210:
+        return _baseline_result(ticker, label, start_date, end_date,
+                                initial_capital, initial_capital,
+                                note="insufficient data for SMA200")
+
+    sma200 = df_ext['Close'].rolling(200).mean()
+
+    # Slice to start_date
+    ts_start = pd.Timestamp(start_date)
+    if df_ext.index.tz and ts_start.tz is None:
+        ts_start = ts_start.tz_localize('UTC')
+    df = df_ext[df_ext.index >= ts_start].copy()
+    sma200 = sma200[df_ext.index >= ts_start]
+
+    if df.empty:
+        return _baseline_result(ticker, label, start_date, end_date,
+                                initial_capital, initial_capital,
+                                note="no data after start_date")
+
+    capital = initial_capital
+    trades = wins = 0
+    hold_days_list = []
+    max_capital = initial_capital
+    max_dd = 0.0
+    year_caps: dict = {}
+    ht_entry_date = None
+    ht_shares = 0.0
+    idx = 0
+
+    while idx < len(df) - 1:
+        s200 = sma200.iloc[idx]
+        if pd.isna(s200):
+            idx += 1
+            continue
+        low = float(df['Low'].iloc[idx])
+        close = float(df['Close'].iloc[idx])
+        if low <= float(s200) and close > float(s200):
+            entry_price = float(df['Open'].iloc[idx + 1])
+            if entry_price <= 0:
+                idx += 1
+                continue
+            entry_date = df.index[idx + 1]
+            if hold_to_end:
+                ht_shares = initial_capital / entry_price
+                ht_entry_date = entry_date
+                exit_price = float(df['Close'].iloc[-1])
+                pnl = (exit_price - entry_price) / entry_price * 100
+                hold = (df.index[-1] - entry_date).days
+                capital *= (1 + pnl / 100)
+                trades += 1
+                if pnl > 0: wins += 1
+                hold_days_list.append(hold)
+                break
+            else:
+                target = entry_price * (1 + profit_target_pct / 100)
+                exit_idx = None
+                for j in range(idx + 2, len(df)):
+                    if df['High'].iloc[j] >= target:
+                        exit_idx = j
+                        break
+                if exit_idx is not None:
+                    pnl = profit_target_pct
+                    hold = (df.index[exit_idx] - entry_date).days
+                    wins += 1
+                    idx = exit_idx
+                else:
+                    pnl = (float(df['Close'].iloc[-1]) - entry_price) / entry_price * 100
+                    hold = (df.index[-1] - entry_date).days
+                    idx = len(df)
+                capital *= (1 + pnl / 100)
+                trades += 1
+                hold_days_list.append(hold)
+                max_capital = max(max_capital, capital)
+                max_dd = max(max_dd, (max_capital - capital) / max_capital * 100)
+                year_caps[df.index[min(idx, len(df)-1)].year] = capital
+        else:
+            idx += 1
+
+    if not trades:
+        return _baseline_result(ticker, label, start_date, end_date,
+                                initial_capital, initial_capital,
+                                note="no SMA200 bounce in period")
+
+    win_rate = round(wins / trades * 100, 1) if trades else 0.0
+    avg_hold = round(float(np.mean(hold_days_list)), 1) if hold_days_list else 0.0
+    days = (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days
+    total = round((capital - initial_capital) / initial_capital * 100, 1)
+    r = BaselineResult(
+        ticker=ticker, label=label,
+        start_date=start_date, end_date=end_date,
+        initial_capital=initial_capital, final_capital=round(capital, 2),
+        total_return_pct=total, annualized_return_pct=_annualized(total, days),
+        n_trades=trades, win_rate_pct=win_rate, avg_hold_days=avg_hold,
+        max_drawdown_pct=round(max_dd, 1),
+        note="Low<=SMA200, Close>SMA200 trigger",
+    )
+    r.yearly_returns = (_ohlcv_yearly(df, ht_entry_date, ht_shares, initial_capital)
+                        if hold_to_end else _yearly_from_caps(year_caps, initial_capital))
+    return r
+
+
+def baseline_golden_cross_entry(ticker: str, start_date: str, end_date: str,
+                                 profit_target_pct: float, initial_capital: float,
+                                 fast_period: int = 50, slow_period: int = 200,
+                                 hold_to_end: bool = False) -> BaselineResult:
+    """Classic retail: buy on SMA-50 x SMA-200 golden cross."""
+    label_suffix = "Hold" if hold_to_end else f"+{int(profit_target_pct)}%"
+    label = f"GoldenCross {label_suffix}"
+
+    extended_start = (pd.Timestamp(start_date) - timedelta(days=310)).strftime('%Y-%m-%d')
+    df_ext = _fetch_ohlcv(ticker, extended_start, end_date)
+    if df_ext.empty or len(df_ext) < slow_period + 10:
+        return _baseline_result(ticker, label, start_date, end_date,
+                                initial_capital, initial_capital,
+                                note="insufficient data for golden cross")
+
+    sma_fast = df_ext['Close'].rolling(fast_period).mean()
+    sma_slow = df_ext['Close'].rolling(slow_period).mean()
+
+    ts_start = pd.Timestamp(start_date)
+    if df_ext.index.tz and ts_start.tz is None:
+        ts_start = ts_start.tz_localize('UTC')
+    df = df_ext[df_ext.index >= ts_start].copy()
+    sma_fast = sma_fast[df_ext.index >= ts_start]
+    sma_slow = sma_slow[df_ext.index >= ts_start]
+
+    if df.empty:
+        return _baseline_result(ticker, label, start_date, end_date,
+                                initial_capital, initial_capital,
+                                note="no data after start_date")
+
+    capital = initial_capital
+    trades = wins = 0
+    hold_days_list = []
+    max_capital = initial_capital
+    max_dd = 0.0
+    year_caps: dict = {}
+    ht_entry_date = None
+    ht_shares = 0.0
+    idx = 1
+
+    while idx < len(df) - 1:
+        f_prev = sma_fast.iloc[idx - 1]
+        f_curr = sma_fast.iloc[idx]
+        s_prev = sma_slow.iloc[idx - 1]
+        s_curr = sma_slow.iloc[idx]
+        if any(pd.isna(x) for x in [f_prev, f_curr, s_prev, s_curr]):
+            idx += 1
+            continue
+        if float(f_prev) <= float(s_prev) and float(f_curr) > float(s_curr):
+            entry_price = float(df['Open'].iloc[idx + 1])
+            if entry_price <= 0:
+                idx += 1
+                continue
+            entry_date = df.index[idx + 1]
+            if hold_to_end:
+                ht_shares = initial_capital / entry_price
+                ht_entry_date = entry_date
+                exit_price = float(df['Close'].iloc[-1])
+                pnl = (exit_price - entry_price) / entry_price * 100
+                hold = (df.index[-1] - entry_date).days
+                capital *= (1 + pnl / 100)
+                trades += 1
+                if pnl > 0: wins += 1
+                hold_days_list.append(hold)
+                break
+            else:
+                target = entry_price * (1 + profit_target_pct / 100)
+                exit_idx = None
+                for j in range(idx + 2, len(df)):
+                    if df['High'].iloc[j] >= target:
+                        exit_idx = j
+                        break
+                if exit_idx is not None:
+                    pnl = profit_target_pct
+                    hold = (df.index[exit_idx] - entry_date).days
+                    wins += 1
+                    idx = exit_idx
+                else:
+                    pnl = (float(df['Close'].iloc[-1]) - entry_price) / entry_price * 100
+                    hold = (df.index[-1] - entry_date).days
+                    idx = len(df)
+                capital *= (1 + pnl / 100)
+                trades += 1
+                hold_days_list.append(hold)
+                max_capital = max(max_capital, capital)
+                max_dd = max(max_dd, (max_capital - capital) / max_capital * 100)
+                year_caps[df.index[min(idx, len(df)-1)].year] = capital
+        else:
+            idx += 1
+
+    if not trades:
+        return _baseline_result(ticker, label, start_date, end_date,
+                                initial_capital, initial_capital,
+                                note="no golden cross in period")
+
+    win_rate = round(wins / trades * 100, 1) if trades else 0.0
+    avg_hold = round(float(np.mean(hold_days_list)), 1) if hold_days_list else 0.0
+    days = (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days
+    total = round((capital - initial_capital) / initial_capital * 100, 1)
+    r = BaselineResult(
+        ticker=ticker, label=label,
+        start_date=start_date, end_date=end_date,
+        initial_capital=initial_capital, final_capital=round(capital, 2),
+        total_return_pct=total, annualized_return_pct=_annualized(total, days),
+        n_trades=trades, win_rate_pct=win_rate, avg_hold_days=avg_hold,
+        max_drawdown_pct=round(max_dd, 1),
+        note=f"SMA{fast_period} x SMA{slow_period} cross",
+    )
+    r.yearly_returns = (_ohlcv_yearly(df, ht_entry_date, ht_shares, initial_capital)
+                        if hold_to_end else _yearly_from_caps(year_caps, initial_capital))
+    return r
+
+
+def baseline_volume_surge(ticker: str, start_date: str, end_date: str,
+                           profit_target_pct: float, initial_capital: float,
+                           volume_multiplier: float = 2.0,
+                           hold_to_end: bool = False) -> BaselineResult:
+    """Institutional signal: buy on volume spike above N x 20-day average."""
+    label_suffix = "Hold" if hold_to_end else f"+{int(profit_target_pct)}%"
+    label = f"VolSurge {label_suffix}"
+
+    df = _fetch_ohlcv(ticker, start_date, end_date)
+    if df.empty or len(df) <= 22:
+        return _baseline_result(ticker, label, start_date, end_date,
+                                initial_capital, initial_capital,
+                                note="no volume surge in period")
+
+    avg_vol = df['Volume'].rolling(20).mean()
+    capital = initial_capital
+    trades = wins = 0
+    hold_days_list = []
+    max_capital = initial_capital
+    max_dd = 0.0
+    year_caps: dict = {}
+    ht_entry_date = None
+    ht_shares = 0.0
+    idx = 20
+
+    while idx < len(df) - 1:
+        av = avg_vol.iloc[idx]
+        if pd.isna(av) or float(av) <= 0:
+            idx += 1
+            continue
+        if float(df['Volume'].iloc[idx]) >= volume_multiplier * float(av):
+            entry_price = float(df['Open'].iloc[idx + 1])
+            if entry_price <= 0:
+                idx += 1
+                continue
+            entry_date = df.index[idx + 1]
+            if hold_to_end:
+                ht_shares = initial_capital / entry_price
+                ht_entry_date = entry_date
+                exit_price = float(df['Close'].iloc[-1])
+                pnl = (exit_price - entry_price) / entry_price * 100
+                hold = (df.index[-1] - entry_date).days
+                capital *= (1 + pnl / 100)
+                trades += 1
+                if pnl > 0: wins += 1
+                hold_days_list.append(hold)
+                break
+            else:
+                target = entry_price * (1 + profit_target_pct / 100)
+                exit_idx = None
+                for j in range(idx + 2, len(df)):
+                    if df['High'].iloc[j] >= target:
+                        exit_idx = j
+                        break
+                if exit_idx is not None:
+                    pnl = profit_target_pct
+                    hold = (df.index[exit_idx] - entry_date).days
+                    wins += 1
+                    idx = exit_idx
+                else:
+                    pnl = (float(df['Close'].iloc[-1]) - entry_price) / entry_price * 100
+                    hold = (df.index[-1] - entry_date).days
+                    idx = len(df)
+                capital *= (1 + pnl / 100)
+                trades += 1
+                hold_days_list.append(hold)
+                max_capital = max(max_capital, capital)
+                max_dd = max(max_dd, (max_capital - capital) / max_capital * 100)
+                year_caps[df.index[min(idx, len(df)-1)].year] = capital
+        else:
+            idx += 1
+
+    if not trades:
+        return _baseline_result(ticker, label, start_date, end_date,
+                                initial_capital, initial_capital,
+                                note="no volume surge in period")
+
+    win_rate = round(wins / trades * 100, 1) if trades else 0.0
+    avg_hold = round(float(np.mean(hold_days_list)), 1) if hold_days_list else 0.0
+    days = (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days
+    total = round((capital - initial_capital) / initial_capital * 100, 1)
+    r = BaselineResult(
+        ticker=ticker, label=label,
+        start_date=start_date, end_date=end_date,
+        initial_capital=initial_capital, final_capital=round(capital, 2),
+        total_return_pct=total, annualized_return_pct=_annualized(total, days),
+        n_trades=trades, win_rate_pct=win_rate, avg_hold_days=avg_hold,
+        max_drawdown_pct=round(max_dd, 1),
+        note=f"volume >= {volume_multiplier:.0f}x 20d avg",
+    )
+    r.yearly_returns = (_ohlcv_yearly(df, ht_entry_date, ht_shares, initial_capital)
+                        if hold_to_end else _yearly_from_caps(year_caps, initial_capital))
+    return r
+
+
+def baseline_sniper_hold(ticker: str, start_date: str, end_date: str,
+                          initial_capital: float) -> BaselineResult:
+    """Sniper entry quality: run Sniper at start, wait up to 90 days for L1 hit, hold to end."""
+    from sniper import TechSniperAI
+    df = _fetch_ohlcv(ticker, start_date, end_date)
+    if df.empty:
+        return _baseline_result(ticker, "Sniper Hold", start_date, end_date,
+                                initial_capital, initial_capital, note="no data")
+    try:
+        bot = TechSniperAI(ticker, as_of_date=start_date, use_cache=True)
+        if bot.current_price == 0:
+            return _baseline_result(ticker, "Sniper Hold", start_date, end_date,
+                                    initial_capital, initial_capital, note="sniper price=0")
+        orders = bot.generate_orders()
+    except Exception as e:
+        return _baseline_result(ticker, "Sniper Hold", start_date, end_date,
+                                initial_capital, initial_capital, note=f"sniper err: {e}")
+
+    if not orders:
+        return _baseline_result(ticker, "Sniper Hold", start_date, end_date,
+                                initial_capital, initial_capital, note="no levels generated")
+
+    levels = sorted([v['price'] for v in orders.values()], reverse=True)
+    l1 = levels[0]
+
+    ts_start = pd.Timestamp(start_date)
+    if df.index.tz and ts_start.tz is None:
+        ts_start = ts_start.tz_localize('UTC')
+    window = df[df.index >= ts_start].iloc[:90]  # 90-day entry window
+
+    entry_date = None
+    entry_price = None
+    for i in range(len(window)):
+        if float(window['Low'].iloc[i]) <= l1:
+            entry_price = min(float(window['Open'].iloc[i]), l1)
+            entry_date = window.index[i]
+            break
+
+    if entry_price is None:
+        return _baseline_result(ticker, "Sniper Hold", start_date, end_date,
+                                initial_capital, initial_capital,
+                                note=f"L1={l1:.2f} never hit in 90d")
+
+    shares = initial_capital / entry_price
+    exit_price = float(df['Close'].iloc[-1])
+    final = shares * exit_price
+    hold = (df.index[-1] - entry_date).days
+
+    # max drawdown from entry to end
+    entry_ts = entry_date
+    held = df[df.index >= entry_ts]
+    peak, max_dd = entry_price, 0.0
+    for c in held['Close'].values:
+        if c > peak: peak = c
+        dd = (peak - c) / peak * 100
+        if dd > max_dd: max_dd = dd
+
+    days_total = (pd.Timestamp(end_date) - pd.Timestamp(start_date)).days
+    total = round((final - initial_capital) / initial_capital * 100, 1)
+    r = _baseline_result(ticker, "Sniper Hold", start_date, end_date,
+                         initial_capital, final, 1, 100.0 if final >= initial_capital else 0.0,
+                         hold, round(max_dd, 1),
+                         f"L1={l1:.2f}, entered {entry_date.strftime('%Y-%m-%d')}")
+    r.yearly_returns = _ohlcv_yearly(held, entry_date, shares, initial_capital)
+    return r
 
 
 # ─── core simulator ───────────────────────────────────────────────────────────
@@ -640,12 +1478,27 @@ def run_benchmark(
             # ── baselines ──────────────────────────────────────────────────
             baselines = []
             with console.status(f"  [dim]Computing baselines for {ticker} {start}...[/dim]"):
+                # Hold Forever group
                 baselines.append(baseline_buy_hold(ticker, start, end_date, initial_capital))
                 baselines.append(baseline_ticker_dca(ticker, start, end_date, initial_capital))
                 baselines.append(baseline_spy_dca(start, end_date, initial_capital))
+                baselines.append(baseline_sniper_hold(ticker, start, end_date, initial_capital))
+                baselines.append(baseline_breakout_entry(ticker, start, end_date, 0, initial_capital, hold_to_end=True))
+                baselines.append(baseline_rsi_entry(ticker, start, end_date, 0, initial_capital, hold_to_end=True))
+                baselines.append(baseline_sma200_bounce(ticker, start, end_date, 0, initial_capital, hold_to_end=True))
+                baselines.append(baseline_golden_cross_entry(ticker, start, end_date, 0, initial_capital, hold_to_end=True))
+                baselines.append(baseline_volume_surge(ticker, start, end_date, 0, initial_capital, hold_to_end=True))
+                # Re-enter group (per profit target)
                 for target in targets:
+                    baselines.append(baseline_immediate_rebuy(ticker, start, end_date, target, initial_capital))
                     baselines.append(baseline_random_entry(ticker, start, end_date, target, initial_capital))
                     baselines.append(baseline_pullback_entry(ticker, start, end_date, target, initial_capital))
+                    baselines.append(baseline_dca_with_exit(ticker, start, end_date, target, initial_capital))
+                    baselines.append(baseline_breakout_entry(ticker, start, end_date, target, initial_capital))
+                    baselines.append(baseline_rsi_entry(ticker, start, end_date, target, initial_capital))
+                    baselines.append(baseline_sma200_bounce(ticker, start, end_date, target, initial_capital))
+                    baselines.append(baseline_golden_cross_entry(ticker, start, end_date, target, initial_capital))
+                    baselines.append(baseline_volume_surge(ticker, start, end_date, target, initial_capital))
             all_baselines.extend(baselines)
 
             # ── head-to-head comparison table ──────────────────────────────
@@ -691,39 +1544,123 @@ def _print_comparison_table(ticker, start, end, sniper_results, baselines, targe
              r.final_capital, r.n_trades, r.win_rate_pct, r.avg_hold_days,
              r.max_drawdown_pct, "support levels + exit", "bold cyan")
 
-    # Baseline: Buy&Hold + DCA (no target-specific)
+    # ── HOLD FOREVER GROUP ────────────────────────────────────────────────
     tbl.add_section()
-    bh  = next((b for b in baselines if b.label == "Buy&Hold"), None)
-    dca = next((b for b in baselines if b.label == "DCA"), None)
-    spy = next((b for b in baselines if b.label == "SPY DCA"), None)
-    if bh:
-        _row("Buy & Hold", bh.total_return_pct, bh.annualized_return_pct,
-             bh.final_capital, bh.n_trades, bh.win_rate_pct, bh.avg_hold_days,
-             bh.max_drawdown_pct, "buy open, hold to end", "dim")
-    if dca:
-        _row(f"DCA {ticker}", dca.total_return_pct, dca.annualized_return_pct,
-             dca.final_capital, dca.n_trades, dca.win_rate_pct, dca.avg_hold_days,
-             dca.max_drawdown_pct, dca.note, "dim")
-    if spy:
-        _row("SPY DCA", spy.total_return_pct, spy.annualized_return_pct,
-             spy.final_capital, spy.n_trades, spy.win_rate_pct, spy.avg_hold_days,
-             spy.max_drawdown_pct, spy.note, "dim")
+    tbl.add_row("[bold dim]── HOLD FOREVER (same exit: period end) ──[/bold dim]",
+                "", "", "", "", "", "", "", "")
+    hold_forever_rows = [
+        ("Buy & Hold",          "Buy&Hold",          "dim"),
+        (f"DCA {ticker}",       "DCA",               "dim"),
+        ("SPY DCA",             "SPY DCA",            "dim"),
+        ("Sniper Hold",         "Sniper Hold",        "bold cyan"),
+        ("Breakout 20d Hold",   "Breakout20d Hold",   "blue"),
+        ("RSI>50 Hold",         "RSI>50 Hold",        "blue"),
+        ("SMA200 Bounce Hold",  "SMA200Bounce Hold",  "blue"),
+        ("Golden Cross Hold",   "GoldenCross Hold",   "blue"),
+        ("Vol Surge Hold",      "VolSurge Hold",      "blue"),
+    ]
+    for row_label, blabel, style in hold_forever_rows:
+        b = next((x for x in baselines if x.label == blabel), None)
+        if b:
+            _row(row_label, b.total_return_pct, b.annualized_return_pct,
+                 b.final_capital, b.n_trades, b.win_rate_pct, b.avg_hold_days,
+                 b.max_drawdown_pct, b.note, style)
 
-    # Baseline: Random + Pullback per target
+    # ── RE-ENTER GROUP (per target) ───────────────────────────────────────
     for target in targets:
         tbl.add_section()
-        rand = next((b for b in baselines if b.label == f"Random+{int(target)}%"), None)
-        pull = next((b for b in baselines if b.label == f"Pullback+{int(target)}%"), None)
-        if rand:
-            _row(f"Random entry +{int(target)}%", rand.total_return_pct,
-                 rand.annualized_return_pct, rand.final_capital,
-                 rand.n_trades, rand.win_rate_pct, rand.avg_hold_days,
-                 rand.max_drawdown_pct, rand.note, "yellow")
-        if pull:
-            _row(f"Pullback -5% +{int(target)}%", pull.total_return_pct,
-                 pull.annualized_return_pct, pull.final_capital,
-                 pull.n_trades, pull.win_rate_pct, pull.avg_hold_days,
-                 pull.max_drawdown_pct, pull.note, "yellow")
+        tbl.add_row(f"[bold dim]── SELL +{int(target)}%, RE-ENTER ──[/bold dim]",
+                    "", "", "", "", "", "", "", "")
+        reenter_rows = [
+            (f"Immediate Rebuy +{int(target)}%",  f"ImmediateRebuy+{int(target)}%", "yellow"),
+            (f"Random entry +{int(target)}%",     f"Random+{int(target)}%",         "yellow"),
+            (f"Pullback -5% +{int(target)}%",     f"Pullback+{int(target)}%",       "yellow"),
+            (f"DCA +{int(target)}%",              f"DCA+{int(target)}%",            "yellow"),
+            (f"Breakout 20d +{int(target)}%",     f"Breakout20d +{int(target)}%",   "magenta"),
+            (f"RSI>50 +{int(target)}%",           f"RSI>50 +{int(target)}%",        "magenta"),
+            (f"SMA200 Bounce +{int(target)}%",    f"SMA200Bounce +{int(target)}%",  "magenta"),
+            (f"Golden Cross +{int(target)}%",     f"GoldenCross +{int(target)}%",   "magenta"),
+            (f"Vol Surge +{int(target)}%",        f"VolSurge +{int(target)}%",      "magenta"),
+        ]
+        for row_label, blabel, style in reenter_rows:
+            b = next((x for x in baselines if x.label == blabel), None)
+            if b:
+                _row(row_label, b.total_return_pct, b.annualized_return_pct,
+                     b.final_capital, b.n_trades, b.win_rate_pct, b.avg_hold_days,
+                     b.max_drawdown_pct, b.note, style)
+
+    console.print(tbl)
+    _print_yearly_table(ticker, start, end, sniper_results, baselines, targets)
+
+
+def _print_yearly_table(ticker, start, end, sniper_results, baselines, targets):
+    """Show calendar-year return for each strategy — spot regime changes at a glance."""
+    # Collect all years present across all strategies
+    all_yearly: list[tuple[str, dict, str]] = []  # (label, yearly_dict, style)
+
+    for r in sniper_results:
+        if hasattr(r, 'trades') and r.trades:
+            yc: dict = {}
+            cap = r.initial_capital
+            for t in r.trades:
+                exit_yr = pd.Timestamp(t.exit_date).year if t.exit_date else None
+                if exit_yr:
+                    cap *= (1 + t.pnl_pct / 100)
+                    yc[exit_yr] = cap
+            yr_ret = _yearly_from_caps(yc, r.initial_capital)
+        else:
+            yr_ret = {}
+        all_yearly.append((f"Sniper {r.strategy}", yr_ret, "bold cyan"))
+
+    hold_labels = [
+        ("Buy&Hold", "dim"), ("DCA", "dim"), ("SPY DCA", "dim"),
+        ("Sniper Hold", "bold cyan"),
+        ("Breakout20d Hold", "blue"), ("RSI>50 Hold", "blue"),
+        ("SMA200Bounce Hold", "blue"), ("GoldenCross Hold", "blue"),
+        ("VolSurge Hold", "blue"),
+    ]
+    for blabel, style in hold_labels:
+        b = next((x for x in baselines if x.label == blabel), None)
+        if b and b.yearly_returns:
+            all_yearly.append((blabel, b.yearly_returns, style))
+
+    for target in targets:
+        reenter_labels = [
+            (f"ImmediateRebuy+{int(target)}%", "yellow"),
+            (f"Pullback+{int(target)}%", "yellow"),
+            (f"DCA+{int(target)}%", "yellow"),
+            (f"Breakout20d +{int(target)}%", "magenta"),
+            (f"RSI>50 +{int(target)}%", "magenta"),
+            (f"VolSurge +{int(target)}%", "magenta"),
+        ]
+        for blabel, style in reenter_labels:
+            b = next((x for x in baselines if x.label == blabel), None)
+            if b and b.yearly_returns:
+                all_yearly.append((blabel, b.yearly_returns, style))
+
+    if not all_yearly:
+        return
+
+    years = sorted({yr for _, yd, _ in all_yearly for yr in yd})
+    if not years:
+        return
+
+    tbl = Table(title=f"Year-by-Year Returns: {ticker}  {start} -> {end}",
+                box=box.SIMPLE_HEAD, header_style="bold", show_header=True)
+    tbl.add_column("Strategy", min_width=24)
+    for yr in years:
+        tbl.add_column(str(yr), justify="right", min_width=8)
+
+    for label, yd, style in all_yearly:
+        cells = []
+        for yr in years:
+            if yr in yd:
+                v = yd[yr]
+                color = "green" if v >= 0 else "red"
+                cells.append(f"[{color}]{v:+.0f}%[/{color}]")
+            else:
+                cells.append("[dim]—[/dim]")
+        tbl.add_row(f"[{style}]{label}[/{style}]", *cells)
 
     console.print(tbl)
 
@@ -803,9 +1740,22 @@ def _print_grand_summary(all_sniper: list[StrategyResult],
             f"[red]{worst.ticker} {worst.start_date}: {worst.total_return_pct:+.0f}%[/red]",
         )
 
-    # Baseline rows
+    # ── Hold Forever baselines ────────────────────────────────────────────
     tbl.add_section()
-    for blabel in ["Buy&Hold", "DCA", "SPY DCA"]:
+    tbl.add_row("[bold dim]── HOLD FOREVER ──[/bold dim]",
+                "", "", "", "", "", "", "", "")
+    hold_labels = [
+        ("Buy&Hold",         "dim"),
+        ("DCA",              "dim"),
+        ("SPY DCA",          "dim"),
+        ("Sniper Hold",      "bold cyan"),
+        ("Breakout20d Hold", "blue"),
+        ("RSI>50 Hold",      "blue"),
+        ("SMA200Bounce Hold","blue"),
+        ("GoldenCross Hold", "blue"),
+        ("VolSurge Hold",    "blue"),
+    ]
+    for blabel, style in hold_labels:
         bucket = [b for b in all_baselines if b.label == blabel]
         if not bucket:
             continue
@@ -814,16 +1764,30 @@ def _print_grand_summary(all_sniper: list[StrategyResult],
         avg_dd  = np.mean([b.max_drawdown_pct for b in bucket])
         rc = "green" if avg_ret >= 0 else "red"
         tbl.add_row(
-            f"[dim]{blabel}[/dim]",
+            f"[{style}]{blabel}[/{style}]",
             f"[{rc}]{avg_ret:+.1f}%[/{rc}]",
             f"[{rc}]{avg_ann:+.1f}%[/{rc}]",
             "-", "-", "-",
             f"{avg_dd:.1f}%", "-", "-",
         )
 
+    # ── Re-enter baselines ────────────────────────────────────────────────
     tbl.add_section()
+    tbl.add_row("[bold dim]── RE-ENTER AT TARGET ──[/bold dim]",
+                "", "", "", "", "", "", "", "")
     for t in targets:
-        for blabel in [f"Random+{int(t)}%", f"Pullback+{int(t)}%"]:
+        reenter_labels = [
+            (f"ImmediateRebuy+{int(t)}%", "yellow"),
+            (f"Random+{int(t)}%",         "yellow"),
+            (f"Pullback+{int(t)}%",       "yellow"),
+            (f"DCA+{int(t)}%",            "yellow"),
+            (f"Breakout20d +{int(t)}%",   "magenta"),
+            (f"RSI>50 +{int(t)}%",        "magenta"),
+            (f"SMA200Bounce +{int(t)}%",  "magenta"),
+            (f"GoldenCross +{int(t)}%",   "magenta"),
+            (f"VolSurge +{int(t)}%",      "magenta"),
+        ]
+        for blabel, style in reenter_labels:
             bucket = [b for b in all_baselines if b.label == blabel]
             if not bucket:
                 continue
@@ -834,7 +1798,7 @@ def _print_grand_summary(all_sniper: list[StrategyResult],
             avg_dd  = np.mean([b.max_drawdown_pct for b in bucket])
             rc = "green" if avg_ret >= 0 else "red"
             tbl.add_row(
-                f"[yellow]{blabel}[/yellow]",
+                f"[{style}]{blabel}[/{style}]",
                 f"[{rc}]{avg_ret:+.1f}%[/{rc}]",
                 f"[{rc}]{avg_ann:+.1f}%[/{rc}]",
                 f"{avg_tr:.1f}" if avg_tr else "-",
@@ -899,7 +1863,7 @@ def export_results(all_results: list[StrategyResult],
 DEFAULT_TICKERS = ["MSFT", "AAPL", "NVDA", "GOOGL", "META", "TSLA", "AMD"]
 DEFAULT_STARTS  = ["2023-01-01", "2023-07-01", "2024-01-01", "2024-07-01"]
 DEFAULT_END     = "2026-06-01"
-DEFAULT_TARGETS = [5.0, 10.0, 15.0, 20.0]
+DEFAULT_TARGETS = [5.0, 10.0, 25.0, 50.0]
 DEFAULT_CAPITAL = 10_000
 
 if __name__ == "__main__":

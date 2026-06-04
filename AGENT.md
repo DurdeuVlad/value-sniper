@@ -27,8 +27,8 @@ If Python < 3.10, stop and ask the user to upgrade.
 ## Step 2 — Clone and Install
 
 ```bash
-git clone https://github.com/DurdeuVlad/stock-support-calculator
-cd stock-support-calculator
+git clone https://github.com/DurdeuVlad/value-sniper
+cd value-sniper
 pip install -r requirements.txt
 ```
 
@@ -173,7 +173,7 @@ The PyPI version of timesfm requires Python < 3.12. Install from GitHub source i
 ## Project File Map
 
 ```
-stock-support-calculator/
+value-sniper/
 ├── src/
 │   ├── sniper.py          Core engine — protocols A through J, K-Means clustering
 │   ├── dashboard.py       Streamlit web UI
@@ -194,7 +194,7 @@ stock-support-calculator/
 ├── requirements.txt       Core dependencies
 ├── requirements-ml.txt    Optional TimesFM dependencies
 ├── STRATEGY.md            System philosophy and usage guide
-├── RESULTS.md             Backtested benchmark results
+├── RESEARCH.md            Benchmark methodology, full results, and analysis
 └── README.md              Full project documentation
 ```
 

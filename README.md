@@ -12,7 +12,7 @@
 <p align="center">
   <a href="#quick-start">Quick Start</a> ·
   <a href="STRATEGY.md">Strategy</a> ·
-  <a href="RESULTS.md">Results</a> ·
+  <a href="RESEARCH.md">Research</a> ·
   <a href="docs/sniper_architecture.md">Architecture</a> ·
   <a href="docs/visualization_guide.md">Charts</a> ·
   <a href="AGENT.md">Agent Install</a>
@@ -31,8 +31,8 @@ The result is not a magic return generator. It is a tool that removes investor a
 ## Quick Start
 
 ```bash
-git clone https://github.com/DurdeuVlad/stock-support-calculator
-cd stock-support-calculator
+git clone https://github.com/DurdeuVlad/value-sniper
+cd value-sniper
 pip install -r requirements.txt
 streamlit run src/dashboard.py
 ```
@@ -64,39 +64,49 @@ The system also includes a **Defensive Shift** mechanism. When sector breakdown,
 
 ## Results
 
-Full methodology and data in [RESULTS.md](RESULTS.md).
+Full research and detailed findings in [RESEARCH.md](RESEARCH.md).
 
-The test used here: Sniper identifies a support level and enters -- then holds to the **same end date** as buy & hold. Same exit, only the entry price differs. This isolates whether the system finds better entry points.
+The benchmark compares Value Sniper against 14 other entry strategies across two test groups:
 
-### Summary -- average across tickers per scenario
+- **Hold Forever** — one entry, hold to period end. Tests pure entry quality.
+- **Sell at +X%, Re-enter** — systematic compound cycling at +10%, +25%, +50%. Tests whether entry timing adds alpha over a full cycle.
 
-| Scenario | Period | Tickers | Avg Sniper+Hold | Avg B&H | Edge |
-|---|---|---|---|---|---|
-| Bear entries | Jan 2022 to Jun 2026 | MSFT, AAPL, META | **+77.7%** | +69.1% | **+8.6%** |
-| Recovery entries | Jul 2022 to Jun 2026 | MSFT, META | **+204.0%** | +171.1% | **+32.9%** |
-| Bull entries | Jan 2023 to Jun 2026 | MSFT | **+101.4%** | +90.5% | **+10.9%** |
+### Bear entry test: Jan 2022 → Jun 2026 (AAPL + MSFT)
 
-### Per-ticker detail
+Entering at the 2022 market peak and holding through the full bear-to-recovery cycle is the hardest scenario. Here are the average returns across both tickers:
 
-| Scenario | Ticker | B&H Return | Sniper Entry | Sniper+Hold | Edge |
-|---|---|---|---|---|---|
-| Bull (Jan 2023) | MSFT | +90.5% | $223 | **+101.4%** | **+10.9%** |
-| Bull (Jan 2023) | AAPL | +143.6% | no entry found | -- | -- |
-| Bull (Jan 2023) | GOOGL | +328.0% | no entry found | -- | -- |
-| Bear (Jan 2022) | MSFT | +39.4% | $308 | **+45.9%** | **+6.5%** |
-| Bear (Jan 2022) | AAPL | +79.5% | $165 | **+88.4%** | **+8.9%** |
-| Bear (Jan 2022) | META | +88.4% | $317 | **+98.9%** | **+10.5%** |
-| Recovery (Jul 2022) | MSFT | +81.5% | $238 | **+88.7%** | **+7.2%** |
-| Recovery (Jul 2022) | AAPL | +134.0% | no entry found | -- | -- |
-| Recovery (Jul 2022) | META | +297.7% | $150 | **+319.3%** | **+21.6%** |
+| Strategy | Avg Return | Annualised | vs Buy & Hold |
+|---|---|---|---|
+| **Sniper +25%** | **+144.3%** | **+21.8%** | **+84.8pp** |
+| Vol Surge Hold | +99.2% | +16.6% | +39.7pp |
+| Sniper +50% | +94.0% | +15.9% | +34.5pp |
+| SMA200 Bounce +25% | +92.8% | +15.4% | +33.3pp |
+| Golden Cross Hold | +88.0% | +15.3% | +28.5pp |
+| **Sniper Hold** | **+71.0%** | **+12.8%** | **+11.5pp** |
+| Buy & Hold | +59.5% | +11.0% | baseline |
+| SPY DCA | +56.3% | +10.6% | -3.2pp |
+| DCA same ticker | +47.7% | +9.1% | -11.8pp |
+| **Sniper +10%** | **+28.2%** | **+5.6%** | **-31.3pp** |
 
-**When an entry was found:** the Sniper beat buy-and-hold every single time, by +6.5% to +21.6%, purely from a better entry price.
+### What the data says
 
-**When no entry was found (AAPL, GOOGL in bull/recovery):** the predicted support levels were never touched -- the stock went straight up without offering a pullback. This is a real limitation: the system waits for structural support and will miss a sustained uptrend that never dips. AAPL gained +143% in the bull scenario while the Sniper sat on the sidelines. That is the honest tradeoff -- disciplined entries mean missed moves when the market does not offer a pullback.
+**Sniper +25% is the standout result** at +144.3% average — 2.4× Buy & Hold, best of every strategy tested. The combination of a structurally-defended L1 entry and a 25% exit target captures the full bounce from the 2022 floor without exiting too early or staying in cash too long.
 
-**Bear market 2022 (MSFT, AAPL, META, year only):** Sniper -36.7% vs Buy & Hold -39.6%. The system refused most entries -- the Defensive Shift detected sector breakdown and stayed defensive. A small improvement, but the important result is it did not compound losses by buying every dip like a mechanical strategy would.
+**Sniper Hold beats Buy & Hold by +11.5pp** (+71% vs +59.5%). Same exit date, same stock — the only difference is the entry price. The L1 entry during the 2022 drawdown produced a lower cost basis that compounded over four years into a real, consistent advantage. This held on both AAPL (+95.4% vs +79.5%) and MSFT (+46.6% vs +39.4%).
 
-See [RESULTS.md](RESULTS.md) for full methodology and the complete data.
+**Sniper +10% badly underperforms Buy & Hold** (+28.2% vs +59.5%). The yearly table explains this: the +10% target exits the position quickly, the system goes to cash waiting for the next L1 signal, and the stock recovers 49-58% without offering another support entry. Cash drag from tight targets destroys the compounding advantage. The system is designed for meaningful structural dips — a +10% target does not exploit the full bounce.
+
+**Vol Surge Hold is the strongest technical baseline** at +99.2%. Volume spikes ≥ 2× 20-day average mark institutional accumulation events that happen to coincide with major panic selloffs. It entered lower and earlier in 2022 than most other strategies, absorbing only -4% in 2022 (AAPL) vs -26% for Buy & Hold.
+
+**The 2022 drawdown is the decisive variable.** Yearly returns show all calendar-entry strategies (Buy & Hold, DCA) took -26% to -28% in 2022. Sniper Hold entered after the L1 hit — smaller drawdown, lower cost basis. Sniper +25/50% was in cash during 2022's decline (shown as `—` in the yearly table) and entered at the structural floor.
+
+### The honest tradeoff
+
+When price goes straight up without touching a support level, the Sniper has no position. In sustained uptrends that never dip to structural support, momentum strategies (Breakout, Vol Surge, RSI cross) outperform because they don't wait.
+
+This is the design, not a flaw. The system is a precision entry tool for patient capital with a structural thesis. It is not for catching every move.
+
+See [RESEARCH.md](RESEARCH.md) for full tables, year-by-year evolution, and complete analysis.
 
 ---
 
@@ -111,8 +121,8 @@ See [RESULTS.md](RESULTS.md) for full methodology and the complete data.
 **Requirements:** Python 3.10+
 
 ```bash
-git clone https://github.com/DurdeuVlad/stock-support-calculator
-cd stock-support-calculator
+git clone https://github.com/DurdeuVlad/value-sniper
+cd value-sniper
 pip install -r requirements.txt
 ```
 
@@ -220,24 +230,26 @@ Generates a 300-500 word "Wall Street analyst" breakdown: market structure warni
 ## Backtesting
 
 ```bash
-# Strategy benchmark, compound cycle across multiple start points
-python src/benchmark.py --tickers MSFT AAPL NVDA \
-  --starts 2023-01-01 2023-07-01 2024-01-01 \
-  --end 2026-06-01 --targets 5 10 15 20
+# Default: 7 tickers, 4 start points, targets 5/10/25/50%
+python src/benchmark.py
 
-# Bear market test
-python src/benchmark.py --tickers MSFT AAPL NVDA META \
-  --starts 2022-01-03 --end 2023-01-01 --targets 5 10 15 20
+# Bear entry test (the main research scenario)
+python src/benchmark.py --tickers AAPL MSFT \
+  --starts 2022-01-01 --end 2026-06-01 --targets 10 25 50
+
+# Custom tickers and targets
+python src/benchmark.py --tickers MSFT AAPL GOOGL META AMD \
+  --starts 2022-01-01 2023-01-01 --end 2026-06-01 --targets 10 25 50
 ```
 
-Exports `_runtime/benchmark_summary.csv`, `benchmark_trades.csv`, `benchmark_baselines.csv`. Includes four baselines: Buy & Hold, DCA, SPY DCA, Random Entry, and Pullback -5%.
+Compares Sniper against 14 baselines across two groups: Hold Forever (9 strategies) and Sell+Re-enter (9 strategies per target). Exports `_runtime/benchmark_summary.csv`, `benchmark_trades.csv`, `benchmark_baselines.csv`.
 
 ---
 
 ## Project Structure
 
 ```
-stock-support-calculator/
+value-sniper/
 ├── src/
 │   ├── sniper.py          Core analysis engine, 9 protocols, K-Means clustering
 │   ├── dashboard.py       Streamlit web UI
@@ -257,7 +269,7 @@ stock-support-calculator/
 │   ├── visualization_guide.md
 │   └── caching_strategy.md
 ├── STRATEGY.md            Philosophy: what the system is and how to use it
-├── RESULTS.md             Benchmark methodology and full results
+├── RESEARCH.md            Benchmark methodology, full results, and analysis
 ├── AGENT.md               Automated install instructions for AI agents
 ├── requirements.txt       Core dependencies
 ├── requirements-ml.txt    Optional TimesFM dependencies
@@ -269,7 +281,7 @@ stock-support-calculator/
 ## Further Reading
 
 - [STRATEGY.md](STRATEGY.md) - full philosophy: what the system is, how to use it, and what it cannot do
-- [RESULTS.md](RESULTS.md) - complete benchmark methodology and results across bull, bear, and recovery markets
+- [RESEARCH.md](RESEARCH.md) - full benchmark: 14 entry strategies, two groups, bear entry analysis, year-by-year returns
 - [docs/sniper_architecture.md](docs/sniper_architecture.md) - technical deep-dive on signal pipeline
 - [docs/visualization_guide.md](docs/visualization_guide.md) - explanation of every chart
 
