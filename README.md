@@ -43,7 +43,7 @@ Opens at `http://localhost:8501`. That's it.
 
 ## How It Works
 
-The system analyses a ticker and outputs three support levels: a dip entry, a deep value level, and a bear market floor. Each level is the result of K-Means clustering across nine independent signals:
+The system analyses a ticker and outputs three support levels: a dip entry, a deep value level, and a bear market floor. Each level is the result of K-Means clustering across ten independent signals:
 
 | # | Protocol | Signal Source |
 |---|---|---|
