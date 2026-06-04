@@ -66,35 +66,35 @@ The system also includes a **Defensive Shift** mechanism. When sector breakdown,
 
 Full methodology and data in [RESULTS.md](RESULTS.md).
 
-The test used here: Sniper identifies a support level and enters — then holds to the **same end date** as buy & hold. Same exit, only the entry price differs. This isolates whether the system finds better entry points.
+The test used here: Sniper identifies a support level and enters -- then holds to the **same end date** as buy & hold. Same exit, only the entry price differs. This isolates whether the system finds better entry points.
 
-### Summary — average across tickers per scenario
+### Summary -- average across tickers per scenario
 
 | Scenario | Period | Tickers | Avg Sniper+Hold | Avg B&H | Edge |
 |---|---|---|---|---|---|
-| Bear entries | Jan 2022 → Jun 2026 | MSFT, AAPL, META | **+77.7%** | +69.1% | **+8.6%** |
-| Recovery entries | Jul 2022 → Jun 2026 | MSFT, META | **+204.0%** | +171.1% | **+32.9%** |
-| Bull entries | Jan 2023 → Jun 2026 | MSFT | **+101.4%** | +90.5% | **+10.9%** |
+| Bear entries | Jan 2022 to Jun 2026 | MSFT, AAPL, META | **+77.7%** | +69.1% | **+8.6%** |
+| Recovery entries | Jul 2022 to Jun 2026 | MSFT, META | **+204.0%** | +171.1% | **+32.9%** |
+| Bull entries | Jan 2023 to Jun 2026 | MSFT | **+101.4%** | +90.5% | **+10.9%** |
 
 ### Per-ticker detail
 
 | Scenario | Ticker | B&H Return | Sniper Entry | Sniper+Hold | Edge |
 |---|---|---|---|---|---|
 | Bull (Jan 2023) | MSFT | +90.5% | $223 | **+101.4%** | **+10.9%** |
-| Bull (Jan 2023) | AAPL | +143.6% | no entry found | — | — |
-| Bull (Jan 2023) | GOOGL | +328.0% | no entry found | — | — |
+| Bull (Jan 2023) | AAPL | +143.6% | no entry found | -- | -- |
+| Bull (Jan 2023) | GOOGL | +328.0% | no entry found | -- | -- |
 | Bear (Jan 2022) | MSFT | +39.4% | $308 | **+45.9%** | **+6.5%** |
 | Bear (Jan 2022) | AAPL | +79.5% | $165 | **+88.4%** | **+8.9%** |
 | Bear (Jan 2022) | META | +88.4% | $317 | **+98.9%** | **+10.5%** |
 | Recovery (Jul 2022) | MSFT | +81.5% | $238 | **+88.7%** | **+7.2%** |
-| Recovery (Jul 2022) | AAPL | +134.0% | no entry found | — | — |
+| Recovery (Jul 2022) | AAPL | +134.0% | no entry found | -- | -- |
 | Recovery (Jul 2022) | META | +297.7% | $150 | **+319.3%** | **+21.6%** |
 
 **When an entry was found:** the Sniper beat buy-and-hold every single time, by +6.5% to +21.6%, purely from a better entry price.
 
-**When no entry was found (AAPL, GOOGL in bull/recovery):** the predicted support levels were never touched — the stock went straight up without offering a pullback. This is a real limitation: the system waits for structural support and will miss a sustained uptrend that never dips. AAPL gained +143% in the bull scenario while the Sniper sat on the sidelines. That is the honest tradeoff — disciplined entries mean missed moves when the market does not offer a pullback.
+**When no entry was found (AAPL, GOOGL in bull/recovery):** the predicted support levels were never touched -- the stock went straight up without offering a pullback. This is a real limitation: the system waits for structural support and will miss a sustained uptrend that never dips. AAPL gained +143% in the bull scenario while the Sniper sat on the sidelines. That is the honest tradeoff -- disciplined entries mean missed moves when the market does not offer a pullback.
 
-**Bear market 2022 (MSFT, AAPL, META, year only):** Sniper -36.7% vs Buy & Hold -39.6%. The system refused most entries — the Defensive Shift detected sector breakdown and stayed defensive. A small improvement, but the important result is it did not compound losses by buying every dip like a mechanical strategy would.
+**Bear market 2022 (MSFT, AAPL, META, year only):** Sniper -36.7% vs Buy & Hold -39.6%. The system refused most entries -- the Defensive Shift detected sector breakdown and stayed defensive. A small improvement, but the important result is it did not compound losses by buying every dip like a mechanical strategy would.
 
 See [RESULTS.md](RESULTS.md) for full methodology and the complete data.
 
