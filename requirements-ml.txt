@@ -1,0 +1,16 @@
+# Optional ML dependencies for TimesFM forecasting signal (Protocol J)
+#
+# CPU install (slow ~15-30s per forecast, no GPU needed):
+#   pip install -r requirements-ml.txt
+#
+# GPU install (fast ~100-500ms, requires CUDA):
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+#   pip install -r requirements-ml.txt
+#
+# First run will download model weights from HuggingFace (~1GB, one-time).
+
+# TimesFM must be installed from GitHub (PyPI version requires Python <3.12):
+#   pip install "timesfm[torch] @ git+https://github.com/google-research/timesfm.git"
+timesfm[torch] @ git+https://github.com/google-research/timesfm.git
+torch>=2.0.0
+huggingface_hub>=0.23.0

@@ -4,10 +4,10 @@ import time
 from datetime import datetime, timedelta
 import pandas as pd
 
-CACHE_DIR = os.path.join(os.getcwd(), ".cache")
-
-if not os.path.exists(CACHE_DIR):
-    os.makedirs(CACHE_DIR)
+CACHE_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '.cache')
+)
+os.makedirs(CACHE_DIR, exist_ok=True)
 
 class CacheManager:
     def __init__(self):
