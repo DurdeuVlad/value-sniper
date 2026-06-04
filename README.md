@@ -1,89 +1,260 @@
-# The Value Sniper - Quantitative Entry System
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python" />
+  <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" />
+  <img src="https://img.shields.io/badge/Streamlit-Dashboard-red?style=flat-square&logo=streamlit" />
+  <img src="https://img.shields.io/badge/AI-Gemini%202.5-orange?style=flat-square&logo=google" />
+  <img src="https://img.shields.io/badge/ML-TimesFM%202.5-purple?style=flat-square&logo=tensorflow" />
+</p>
 
-A quantitative tool for identifying high-probability entry levels for US Tech Equities (specifically Nasdaq-100). This system uses market microstructure research (Options Max Pain, Gamma Regimes, Macro Yields, and Unfilled Gaps) rather than standard technical analysis.
+<h1 align="center">Value Sniper</h1>
+<p align="center"><strong>Quantitative entry system for Nasdaq-100 tech equities</strong></p>
 
-## Features
+<p align="center">
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="STRATEGY.md">Strategy</a> ·
+  <a href="RESULTS.md">Results</a> ·
+  <a href="docs/sniper_architecture.md">Architecture</a> ·
+  <a href="docs/visualization_guide.md">Charts</a> ·
+  <a href="AGENT.md">Agent Install</a>
+</p>
 
-- **Macro-Yield Sensitivity**: Adjusts entry confidence based on 10-Year Treasury Yield extremes.
-- **Gamma Regimes**: Detects negative gamma environments (VIX > 25) to demand deeper safety margins.
-- **Max Pain Analysis**: Calculates the options strike price with maximum open interest pain.
-- **Gap Analysis**: Identifies unfilled institutional breakaway gaps.
-- **Clustering**: Uses K-Means clustering to find confluence zones among these diverse signals.
+---
+
+Most people who lose money in stocks don't pick bad companies. They buy at the wrong price, have no thesis for why that price is defensible, and panic-sell when it falls further.
+
+Value Sniper is built around one idea: **you should never enter a position without knowing why the price level is structurally sound.** Every level the system outputs is backed by nine independent signals drawn from options market microstructure, macro regime data, institutional gap analysis, and market breadth. When they converge, you have a real reason to be there. When they don't, the system tells you to wait.
+
+The result is not a magic return generator. It is a tool that removes investor anxiety. It converts *"I hope this holds"* into *"I know why this should hold"* and that change in certainty changes everything about how you hold a position through volatility. Every entry has a documented thesis. You know the floor. You know what breaks the trade. The uncertainty that causes panic-selling disappears.
+
+---
+
+## Quick Start
+
+```bash
+git clone https://github.com/DurdeuVlad/stock-support-calculator
+cd stock-support-calculator
+pip install -r requirements.txt
+streamlit run src/dashboard.py
+```
+
+Opens at `http://localhost:8501`. That's it.
+
+---
+
+## How It Works
+
+The system analyses a ticker and outputs three support levels: a dip entry, a deep value level, and a bear market floor. Each level is the result of K-Means clustering across nine independent signals:
+
+| # | Protocol | Signal Source |
+|---|---|---|
+| A | **Macro Regime** | 10Y Treasury yield vs Bollinger Bands. Are rates in stress territory? |
+| B | **Gamma Regime** | VIX level. Is the market pricing fear, demanding wider margins? |
+| C | **Options Max Pain** | The strike where options market makers suffer maximum loss |
+| D | **Gap Analysis** | Unfilled institutional breakaway gaps, weighted by age |
+| E | **Sector Strength** | XLK/SPY ratio. Is tech outperforming or breaking down? |
+| F | **Momentum** | RSI-14. Overbought, oversold, or neutral? |
+| G | **Valuation Regime** | P/S ratio vs sector average. Is a premium priced in? |
+| H | **Market Breadth** | SPY vs RSP divergence. Broad move or narrow leadership? |
+| I | **Trend Strength** | ADX-14. Trending or choppy range? |
+| J | **TimesFM ML** *(optional)* | Google's foundation model 20-day probabilistic price floor |
+
+The system also includes a **Defensive Shift** mechanism. When sector breakdown, narrow breadth, or macro stress is detected, Level 1 is deleted and all levels are pushed lower. It is saying: *normal dip-buying logic does not apply right now.*
+
+---
+
+## Results
+
+Full methodology and data in [RESULTS.md](RESULTS.md).
+
+### Across all market conditions tested
+
+| Scenario | Period | Sniper Result | Buy & Hold |
+|---|---|---|---|
+| Bull market | 2023-2026 | +11% to +47.6% (83% win rate) | +139.7% |
+| Bear market | 2022 | -37.1% (mostly cash, refused most entries) | **-42.4%** |
+| Recovery | mid-2022 to 2024 | +15.5% to +52.8% (**100% win rate**) | +111.2% |
+
+**The number that matters most:** every trade the Sniper entered and exited (profit target hit) closed at a gain. 100% closed-trade win rate across bull and recovery markets. The bear market loss (-37.1%) comes from open positions still held at period end, not from trades exited at the wrong price. See [RESULTS.md](RESULTS.md) for the full explanation.
+
+Buy-and-hold in a three-year bull market outperforms on total return. This is expected. The Sniper's edge is a documented thesis at entry and the discipline to refuse entries when the market structure is broken.
+
+---
+
+## Disclaimer
+
+> **This software is for educational and research purposes only. It does not constitute financial advice, investment advice, or a recommendation to buy or sell any security. All backtested results are historical and do not guarantee future performance. You are solely responsible for your own investment decisions. Trading stocks involves significant risk of loss.**
+
+---
 
 ## Installation
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <repository_url>
-    cd stock-support-calculator
-    ```
+**Requirements:** Python 3.10+
 
-2.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+```bash
+git clone https://github.com/DurdeuVlad/stock-support-calculator
+cd stock-support-calculator
+pip install -r requirements.txt
+```
+
+Copy the env template (optional, only needed for AI analysis):
+```bash
+# Linux / macOS / Git Bash
+cp .env.example .env
+
+# Windows Command Prompt
+copy .env.example .env
+```
+
+Open `.env` and add your `GEMINI_API_KEY` if you want Gemini AI summaries.
+
+---
 
 ## Usage
 
-Run the script from the command line, optionally providing a stock ticker (defaults to MSFT).
-
-**Basic usage:**
-```bash
-python src/sniper.py
-```
-
-**Specify a ticker:**
-```bash
-python src/sniper.py NVDA
-python src/sniper.py AAPL
-```
-
-## Visualization ("Glass Box" Mode)
-
-To see the *why* behind the numbers, use the `--plot` flag:
-
-```bash
-python src/sniper.py MSFT --plot
-```
-
-This will generate 4 chart images in the `_runtime/` folder:
-1.  **Main Analysis:** The price chart with your buy levels drawn.
-2.  **Options Structure:** The "Max Pain" evidence.
-3.  **Macro Regime:** The Treasury Yield analysis.
-4.  **AI Logic:** A visual explanation of how the clustering algorithm grouped the signals.
-
-*See [docs/visualization_guide.md](docs/visualization_guide.md) for a detailed explanation of each chart.*
-
-## Interactive Dashboard (Web UI)
-
-For a fully interactive experience (Zoom, Pan, Explore), launch the local web dashboard:
+### Dashboard
 
 ```bash
 streamlit run src/dashboard.py
 ```
-This will open the tool in your browser (usually at `http://localhost:8501`).
 
-## AI Strategic Analysis (Powered by Gemini)
+Opens at `http://localhost:8501`. Select a ticker, run the analysis, explore evidence tabs for every protocol, run backtests, export reports.
 
-To get a qualitative "Wall Street Analyst" summary of the data:
+### CLI
 
-1.  Create a `.env` file in the project root:
-    ```
-    GEMINI_API_KEY=your_api_key_here
-    ```
-2.  Run with the `--ai` flag:
-    ```bash
-    python src/sniper.py MSFT --ai
-    ```
+```bash
+# Live analysis with full protocol breakdown
+python src/cli.py MSFT
 
-## Output Explained
+# With AI strategic summary (requires GEMINI_API_KEY in .env)
+python src/cli.py MSFT --ai
 
-The tool outputs 3 potential entry levels:
+# Historical: what would the system have said on this date?
+python src/cli.py MSFT --date 2024-06-01 --forward 60
 
-*   **Level 1 (Aggressive):** Institutional Floor. Suitable for initial scaling in during standard pullbacks.
-*   **Level 2 (Deep Value):** Gap Defense. A strong support level often aligned with unfilled gaps or major moving averages.
-*   **Level 3 (Capitulation):** Max Pain / Crash level. Extreme support reserved for high-volatility events.
+# Backtest a full date range
+python src/cli.py MSFT --backtest --start 2023-01-01 --end 2025-01-01 --forward 60
 
-## Disclaimer
+# With TimesFM ML signal on GPU
+python src/cli.py MSFT --ml --ml-device cuda
+```
 
-This software is for educational and research purposes only. It does not constitute financial advice. Trading stocks and options involves significant risk.
+### Example Output
+
+```
+────────────────────── VALUE SNIPER - MSFT ───────────────────────
+Current Price: $427.34
+
+Support Levels
+┌──────────────────────────────┬────────┬─────────┬──────────────────┐
+│ Level                        │ Price  │  Drop % │ Allocate         │
+├──────────────────────────────┼────────┼─────────┼──────────────────┤
+│ Level 1 (Dip Entry)          │$407.59 │  -4.6%  │ 20% of capital   │
+│ Level 2 (Deep Value)         │$371.93 │ -13.0%  │ 30% of capital   │
+│ Level 3 (Bear Market Entry)  │$360.78 │ -15.6%  │ 50% of capital   │
+└──────────────────────────────┴────────┴─────────┴──────────────────┘
+
+Protocol Log
+  Macro     TNX 4.49% | Upper Band 4.66% -> NEUTRAL
+  Gamma     VIX 16.06 -> NORMAL (multiplier: 1.0)
+  Sector    XLK/SPY ratio above SMA20 -> STRONG
+  Breadth   SPY/RSP aligned -> HEALTHY
+  RSI       59.9 -> STRONG (wait for dip)
+  Risk      0/5 -> no discount applied
+```
+
+---
+
+## Optional: TimesFM ML Signal (Protocol J)
+
+Adds Google's [TimesFM 2.5](https://github.com/google-research/timesfm) foundation model as a probabilistic 10th signal. The model's 10th and 25th percentile price floors are fed into the clustering as additional support evidence.
+
+**GPU (CUDA), ~500ms per forecast:**
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+pip install -r requirements-ml.txt
+python src/cli.py MSFT --ml --ml-device cuda
+```
+
+**CPU, ~15-30s per forecast:**
+```bash
+pip install -r requirements-ml.txt
+python src/cli.py MSFT --ml
+```
+
+First run downloads model weights from HuggingFace (~1 GB, one-time). Enable in the dashboard via the **ML Forecast (Protocol J)** toggle in the sidebar.
+
+---
+
+## Optional: AI Strategic Analysis
+
+Add a `GEMINI_API_KEY` to your `.env` file, then:
+
+```bash
+python src/cli.py MSFT --ai
+```
+
+Generates a 300-500 word "Wall Street analyst" breakdown: market structure warnings, valuation sweet spots, options intelligence, position sizing rationale, and risk scenarios.
+
+---
+
+## Backtesting
+
+```bash
+# Strategy benchmark, compound cycle across multiple start points
+python src/benchmark.py --tickers MSFT AAPL NVDA \
+  --starts 2023-01-01 2023-07-01 2024-01-01 \
+  --end 2026-06-01 --targets 5 10 15 20
+
+# Bear market test
+python src/benchmark.py --tickers MSFT AAPL NVDA META \
+  --starts 2022-01-03 --end 2023-01-01 --targets 5 10 15 20
+```
+
+Exports `_runtime/benchmark_summary.csv`, `benchmark_trades.csv`, `benchmark_baselines.csv`. Includes four baselines: Buy & Hold, DCA, SPY DCA, Random Entry, and Pullback -5%.
+
+---
+
+## Project Structure
+
+```
+stock-support-calculator/
+├── src/
+│   ├── sniper.py          Core analysis engine, 9 protocols, K-Means clustering
+│   ├── dashboard.py       Streamlit web UI
+│   ├── cli.py             Full-featured terminal interface
+│   ├── backtest.py        Historical point-in-time backtester
+│   ├── benchmark.py       Compound strategy benchmark with baselines
+│   ├── visualization.py   Chart generation (matplotlib / mplfinance)
+│   ├── ml/
+│   │   └── timesfm_signal.py   TimesFM Protocol J integration
+│   ├── llm/
+│   │   ├── base.py             LLM provider interface
+│   │   └── gemini.py           Gemini 2.5 Flash implementation
+│   └── utils/
+│       └── caching.py          TTL-based pickle cache
+├── docs/
+│   ├── sniper_architecture.md
+│   ├── visualization_guide.md
+│   └── caching_strategy.md
+├── STRATEGY.md            Philosophy: what the system is and how to use it
+├── RESULTS.md             Benchmark methodology and full results
+├── AGENT.md               Automated install instructions for AI agents
+├── requirements.txt       Core dependencies
+├── requirements-ml.txt    Optional TimesFM dependencies
+└── .env.example           API key template
+```
+
+---
+
+## Further Reading
+
+- [STRATEGY.md](STRATEGY.md) - full philosophy: what the system is, how to use it, and what it cannot do
+- [RESULTS.md](RESULTS.md) - complete benchmark methodology and results across bull, bear, and recovery markets
+- [docs/sniper_architecture.md](docs/sniper_architecture.md) - technical deep-dive on signal pipeline
+- [docs/visualization_guide.md](docs/visualization_guide.md) - explanation of every chart
+
+---
+
+## License
+
+MIT - see [LICENSE](LICENSE).
