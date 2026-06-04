@@ -57,6 +57,26 @@ else:
 timeframe = st.sidebar.selectbox("Lookback Period", ["6mo", "1y", "2y", "5y", "max"], index=1)
 use_cache = st.sidebar.checkbox("Use Cache", value=True)
 enable_ai = st.sidebar.checkbox("Enable AI Analysis", value=False)
+
+# TimesFM ML Signal (Protocol J)
+from ml.timesfm_signal import is_available as timesfm_available, TimesFMSignal
+_timesfm_installed = timesfm_available()
+st.sidebar.markdown("---")
+st.sidebar.markdown("**ML Forecast (Protocol J)**")
+if _timesfm_installed:
+    import torch
+    _has_cuda = torch.cuda.is_available()
+    enable_ml = st.sidebar.checkbox("Enable TimesFM Signal", value=False)
+    ml_device = st.sidebar.selectbox("Device", options=["cuda", "cpu"] if _has_cuda else ["cpu"], index=0, disabled=not enable_ml)
+    if enable_ml:
+        _status = f"GPU active ({torch.cuda.get_device_name(0)})" if ml_device == "cuda" else "CPU mode (slow)"
+        st.sidebar.caption(f"TimesFM: {_status}")
+else:
+    enable_ml = False
+    ml_device = "cpu"
+    st.sidebar.caption("Not installed. Run: `pip install -r requirements-ml.txt`")
+st.sidebar.markdown("---")
+
 run_btn = st.sidebar.button("Run Analysis")
 
 # Auto-run if cache is available and no explicit run requested yet
@@ -373,9 +393,14 @@ if run_btn or auto_run:
             except ValueError:
                 st.sidebar.error("GEMINI_API_KEY not found in .env")
         
+        # ML signal
+        ml_signal_instance = None
+        if enable_ml and _timesfm_installed:
+            ml_signal_instance = TimesFMSignal(device=ml_device)
+
         # Run the Bot
         bot = TechSniperAI(ticker, use_cache=use_cache, llm_provider=ai_provider, lookback_period=timeframe)
-        orders = bot.generate_orders()
+        orders = bot.generate_orders(ml_signal=ml_signal_instance)
         
         if not orders:
             st.error("Failed to generate orders. Check ticker or data source.")
@@ -637,7 +662,7 @@ if run_btn or auto_run:
             st.caption("CHART LEGEND: Orange = Aggressive (L1), Green = Deep Value (L2), Red = Capitulation/Crash (L3). Dotted lines represent the AI's calculated buy zones.")
             
             # --- 3. EVIDENCE TABS ---
-            tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Options Intelligence", "Macro Regime", "Market Fear", "Market Breadth", "Trend Strength", "Momentum (RSI)", "AI Logic"])
+            tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab_bt = st.tabs(["Options Intelligence", "Macro Regime", "Market Fear", "Market Breadth", "Trend Strength", "Momentum (RSI)", "AI Logic", "Backtest"])
             
             with tab1:
                 st.subheader("Options Open Interest ('The Smile')")
@@ -795,4 +820,70 @@ if run_btn or auto_run:
                     if ai_insight and ai_insight != "Unavailable":
                         st.success(f"🤖 **AI Insight:** {ai_insight}")
 
+                tfm_log = bot.runtime_log.get('Protocol J - TimesFM', '')
+                if tfm_log and 'Skipped' not in tfm_log:
+                    st.success(f"📡 **Protocol J (TimesFM ML):** {tfm_log}")
+                elif tfm_log:
+                    st.caption(f"Protocol J: {tfm_log}")
                 st.info("**WHAT IS THIS?** The 'Brain' of the algorithm. BLUE DOTS = Every potential support found (Gaps, Moving Averages, Option Strikes). RED STARS = The consensus. The AI groups the Blue Dots and finds the center. Note: Blue dots are jittered vertically to show overlaps.")
+
+            with tab_bt:
+                st.subheader("Backtest — Historical Level Accuracy")
+                st.caption("Runs the sniper at monthly historical dates and checks if predicted levels were hit (intraday Low) within the forward window.")
+                import sys as _sys
+                _bt_src = os.path.join(os.path.dirname(__file__))
+                if _bt_src not in _sys.path:
+                    _sys.path.insert(0, _bt_src)
+                from backtest import Backtester, generate_monthly_dates
+                bt_col1, bt_col2, bt_col3 = st.columns(3)
+                with bt_col1:
+                    bt_start = st.date_input("Start Date", value=pd.Timestamp.now() - pd.DateOffset(years=1))
+                with bt_col2:
+                    bt_end = st.date_input("End Date", value=pd.Timestamp.now() - pd.DateOffset(days=1))
+                with bt_col3:
+                    bt_forward = st.select_slider("Forward Window (days)", options=[30, 60, 90, 120], value=60)
+                run_bt = st.button("Run Backtest", key="run_backtest")
+                if run_bt:
+                    import plotly.graph_objects as _go_bt
+                    bt_dates = generate_monthly_dates(str(bt_start), str(bt_end))
+                    if not bt_dates:
+                        st.warning("No valid dates in selected range.")
+                    else:
+                        st.info(f"Running {len(bt_dates)} dates for {ticker}...")
+                        bt_runner = Backtester(ticker, forward_days=bt_forward, verbose=False)
+                        with st.spinner(f"Backtesting {ticker}..."):
+                            bt_results = bt_runner.run(bt_dates)
+                        if not bt_results:
+                            st.error("No results returned.")
+                        else:
+                            summary = bt_runner.summarize(bt_results)
+                            import re as _re
+                            def _pct(s):
+                                m = _re.search(r'(\d+)%', str(s))
+                                return int(m.group(1)) if m else 0
+                            m1, m2, m3, m4 = st.columns(4)
+                            m1.metric("L1 Hit Rate", summary['l1_hit_rate'])
+                            m2.metric("L2 Hit Rate", summary['l2_hit_rate'])
+                            m3.metric("L3 Hit Rate", summary['l3_hit_rate'])
+                            m4.metric("Avg Max Drawdown", summary['avg_max_drawdown'])
+                            fig_bt_bar = _go_bt.Figure(data=[_go_bt.Bar(
+                                x=['Level 1 (Dip)', 'Level 2 (Deep Value)', 'Level 3 (Bear Market)'],
+                                y=[_pct(summary['l1_hit_rate']), _pct(summary['l2_hit_rate']), _pct(summary['l3_hit_rate'])],
+                                marker_color=['#26a69a', '#ffa726', '#ef5350'],
+                                text=[summary['l1_hit_rate'], summary['l2_hit_rate'], summary['l3_hit_rate']],
+                                textposition='outside',
+                            )])
+                            fig_bt_bar.update_layout(title="Level Hit Rates (%)", yaxis=dict(range=[0, 110], title="%"), template="plotly_dark", height=300)
+                            st.plotly_chart(fig_bt_bar, use_container_width=True)
+                            rows = []
+                            for r in bt_results:
+                                rows.append({'Date': r.analysis_date, 'Price': f"${r.price_at_analysis:.2f}", 'L1': f"${r.level_1_price:.2f} (-{r.l1_pct_drop:.1f}%)", 'L2': f"${r.level_2_price:.2f} (-{r.l2_pct_drop:.1f}%)", 'L3': f"${r.level_3_price:.2f} (-{r.l3_pct_drop:.1f}%)", 'L1 Hit': "HIT" if r.l1_hit else "miss", 'L2 Hit': "HIT" if r.l2_hit else "miss", 'L3 Hit': "HIT" if r.l3_hit else "miss", 'Max Drawdown': f"{r.max_drawdown_pct:.1f}%"})
+                            st.dataframe(pd.DataFrame(rows), use_container_width=True)
+                            import csv as _csv, io as _io
+                            from dataclasses import fields as _fields
+                            csv_buf = _io.StringIO()
+                            writer = _csv.DictWriter(csv_buf, fieldnames=[f.name for f in _fields(bt_results[0])])
+                            writer.writeheader()
+                            for r in bt_results:
+                                writer.writerow({f.name: getattr(r, f.name) for f in _fields(r)})
+                            st.download_button(label="Download CSV", data=csv_buf.getvalue(), file_name=f"{ticker}_backtest_{str(bt_start).replace('-','')}.csv", mime="text/csv")

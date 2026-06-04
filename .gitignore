@@ -4,3 +4,4 @@ __pycache__/
 .env
 .cache/
 .claude/
+.playwright-mcp/

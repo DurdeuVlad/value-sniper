@@ -11,6 +11,7 @@ from visualization import SniperPlotter
 from utils.caching import CacheManager
 from llm.gemini import GeminiProvider
 from dotenv import load_dotenv
+from ml.timesfm_signal import TimesFMSignal, is_available as timesfm_available
 
 load_dotenv()
 
@@ -18,20 +19,23 @@ load_dotenv()
 warnings.filterwarnings("ignore")
 
 class TechSniperAI:
-    def __init__(self, ticker, use_cache=True, llm_provider=None, lookback_period="1y"):
+    def __init__(self, ticker, use_cache=True, llm_provider=None, lookback_period="1y", as_of_date=None):
         self.ticker = ticker.upper()
         self.use_cache = use_cache
         self.cache = CacheManager()
         self.llm_provider = llm_provider
         self.lookback_period = lookback_period
+        self.as_of_date = pd.Timestamp(as_of_date).tz_localize('America/New_York') if as_of_date else None
         self.stock = yf.Ticker(self.ticker)
-        print(f"--- INITIALIZING SNIPER SYSTEM FOR {self.ticker} (Fetching 5y for Indicators) ---")
-        
+        mode = f"HISTORICAL ({as_of_date})" if as_of_date else "LIVE"
+        print(f"--- INITIALIZING SNIPER SYSTEM FOR {self.ticker} [{mode}] (Fetching 5y for Indicators) ---")
+
         # 1. Fetch Data
         try:
             # --- STOCK DATA (TTL: 15 mins) ---
             # Always fetch 5y to ensure SMA200/ADX are valid for the requested view
-            cache_key_stock = f"{self.ticker}_OHLCV_5Y"
+            date_suffix = f"_{pd.Timestamp(as_of_date).strftime('%Y%m%d')}" if as_of_date else ""
+            cache_key_stock = f"{self.ticker}_OHLCV_5Y{date_suffix}"
             self.df = None
             
             if self.use_cache:
@@ -103,6 +107,25 @@ class TechSniperAI:
             if isinstance(self.xlk.columns, pd.MultiIndex): self.xlk.columns = self.xlk.columns.get_level_values(0)
             if isinstance(self.spy.columns, pd.MultiIndex): self.spy.columns = self.spy.columns.get_level_values(0)
             if isinstance(self.rsp.columns, pd.MultiIndex): self.rsp.columns = self.rsp.columns.get_level_values(0)
+
+            # Slice all series to as_of_date for point-in-time historical analysis
+            if self.as_of_date:
+                def _slice(df):
+                    if df is None or df.empty: return df
+                    idx = df.index
+                    if idx.tz is None:
+                        return df[idx <= self.as_of_date.tz_localize(None)]
+                    return df[idx <= self.as_of_date]
+                self.df  = _slice(self.df)
+                self.tnx = _slice(self.tnx)
+                self.vix = _slice(self.vix)
+                self.xlk = _slice(self.xlk)
+                self.spy = _slice(self.spy)
+                self.rsp = _slice(self.rsp)
+                if self.df.empty:
+                    print(f"Error: No data available on or before {as_of_date}")
+                    self.current_price = 0
+                    return
 
             self.current_price = self.df['Close'].iloc[-1]
             
@@ -323,6 +346,11 @@ class TechSniperAI:
 
     def calculate_max_pain(self):
         """Protocol C: Max Pain via Option Chain"""
+        if self.as_of_date:
+            print("[PROTOCOL C] Options skipped (historical mode — live chains unavailable)")
+            self.runtime_log['Protocol C - Options'] = "Skipped (historical mode)"
+            self.df_pain = pd.DataFrame()
+            return
         try:
             # Check Cache first (TTL: 60 mins)
             cache_key = f"{self.ticker}_OPTIONS_PAIN"
@@ -573,9 +601,12 @@ class TechSniperAI:
         
         return False, ""
 
-    def generate_orders(self):
+    def generate_orders(self, ml_signal: 'TimesFMSignal' = None):
         if self.current_price == 0:
             return {}
+
+        if self.as_of_date:
+            self.runtime_log['Analysis Date'] = self.as_of_date.strftime('%Y-%m-%d')
 
         # 1. Gather Intelligence
         macro_mod = self.analyze_macro_regime()
@@ -598,6 +629,29 @@ class TechSniperAI:
         _, lower_bb = self._calculate_bollinger_bands(self.df['Close'])
         if not lower_bb.empty:
             self.potential_supports.append(lower_bb.iloc[-1])
+
+        # Protocol J — TimesFM ML Forecast (optional)
+        if ml_signal is not None:
+            cache_key = f"{self.ticker}_TIMESFM_FORECAST"
+            cached = self.cache.load(cache_key, ttl_minutes=60) if self.use_cache else None
+            if cached:
+                tfm_result = cached
+            else:
+                prices = self.df['Close'].values
+                tfm_result = ml_signal.forecast(prices)
+                if self.use_cache:
+                    self.cache.save(cache_key, tfm_result)
+            q10 = tfm_result["q10_floor"]
+            q25 = tfm_result["q25_floor"]
+            print(f"[PROTOCOL J] TimesFM ({tfm_result['device'].upper()}): Q10={q10:.2f}, Q25={q25:.2f}")
+            self.runtime_log['Protocol J - TimesFM'] = (
+                f"Device: {tfm_result['device'].upper()} | 20-day Q10 floor: ${q10:.2f} | Q25 floor: ${q25:.2f}"
+            )
+            for level in [q10, q25]:
+                if level < self.current_price and not np.isnan(level):
+                    self.potential_supports.extend([level, level])  # weight 2x
+        else:
+            self.runtime_log['Protocol J - TimesFM'] = "Skipped (use --ml to enable)"
 
         # 2. Filter & Cluster
         valid_supports = [x for x in self.potential_supports if x < self.current_price and not np.isnan(x)]
@@ -751,6 +805,8 @@ if __name__ == "__main__":
     parser.add_argument('--plot', action='store_true', help='Generate chart visualization and logs in _runtime/')
     parser.add_argument('--no-cache', action='store_true', help='Force live data fetching (ignore cache)')
     parser.add_argument('--ai', action='store_true', help='Enable AI Analysis via Gemini (Requires GEMINI_API_KEY)')
+    parser.add_argument('--ml', action='store_true', help='Enable TimesFM ML signal (Protocol J)')
+    parser.add_argument('--ml-device', type=str, default='auto', choices=['auto', 'cpu', 'cuda'])
     args = parser.parse_args()
 
     TARGET = args.ticker
@@ -765,8 +821,15 @@ if __name__ == "__main__":
             print("Please set the GEMINI_API_KEY environment variable.")
             sys.exit(1)
     
+    ml_signal = None
+    if args.ml:
+        if not timesfm_available():
+            print("[ERROR] TimesFM not installed. Run: pip install -r requirements-ml.txt")
+            sys.exit(1)
+        ml_signal = TimesFMSignal(device=args.ml_device)
+
     bot = TechSniperAI(TARGET, use_cache=not args.no_cache, llm_provider=ai_provider)
-    orders = bot.generate_orders()
+    orders = bot.generate_orders(ml_signal=ml_signal)
     
     if orders:
         print(f"\n>>> SNIPER ORDERS FOR {TARGET} (Current: ${bot.current_price:.2f}) <<<")
