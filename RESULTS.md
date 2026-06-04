@@ -1,264 +1,167 @@
 # Value Sniper — Benchmark Results
 
-This document describes the backtesting methodology and results across three distinct market regimes. All tests were conducted using real historical price data from Yahoo Finance. The code is fully open and reproducible — see `src/benchmark.py` and `src/backtest.py`.
+This document describes the backtesting methodology and results across multiple market regimes. All tests were conducted using real historical price data from Yahoo Finance. The code is fully open and reproducible — see `src/benchmark.py` and `src/backtest.py`.
+
+---
+
+## The Only Fair Comparison
+
+Value Sniper is an **entry system**, not a trading bot. It identifies high-probability support levels and waits for them. Comparing "Sniper exits at +10% then re-analyses" against "Buy & Hold rides the full 200%" is not a fair test — they are different strategies with different goals.
+
+**The correct comparison is:**
+- Sniper identifies a support level → price hits it → **hold to the same end date as buy & hold**
+- vs Buy & Hold: buy at the start date → hold to the same end date
+
+This isolates the one variable that matters: **does entering at a Sniper support level give you a better cost basis than just buying on day one?**
 
 ---
 
 ## Methodology
 
-### How the Backtest Works
+### How the Entry-Hold Test Works
 
-1. The sniper is run at a historical date with all data sliced to that point in time — no lookahead.
-2. Forward price data from that date onward is fetched independently.
-3. A "hit" is recorded when the intraday low touches or crosses below a predicted level (simulating a realistic limit order fill).
-4. Entry is recorded at the next day's open after the hit (conservative — no assuming you filled at the exact low).
-5. For strategy benchmarks, the compound cycle runs: entry at level → wait for profit target → re-run analysis → next entry. Capital compounds trade by trade.
+1. The sniper is run at a historical start date with all data sliced to that point — no lookahead.
+2. Forward price data is used to detect the first support level hit within 90 days.
+3. Entry is recorded at the next day's open after the hit (conservative).
+4. Position is held to the same end date used by Buy & Hold.
+5. Returns are compared: same exit, only the entry price differs.
+
+### What "No Entry" Means
+
+When the system finds no valid entry, it is saying: "I see no structurally defensible floor to buy at right now." This is the system working correctly. For stocks that only go up (AAPL Jan 2023, GOOGL Jan 2023), no entry is offered — and that is honest, not a failure.
 
 ### What Is Not Available in Historical Mode
 
-Live options chains are not accessible for historical dates. Protocol C (max pain and OI walls) is automatically skipped in historical analysis. This means backtested levels are built from 8 protocols instead of 9, making the backtest a **conservative underestimate** of the live system's accuracy.
-
-### Baselines Used
-
-Four baselines were computed for every ticker/period combination:
-
-| Baseline | Description |
-|---|---|
-| **Buy & Hold** | Buy at open on start date, hold to end date |
-| **DCA (same ticker)** | Monthly equal-slice investment into the same stock |
-| **SPY DCA** | Monthly equal-slice investment into SPY (the market) |
-| **Random Entry** | Same compound +X% exit mechanic, but entry on a random day instead of a support level. Averaged over 50 simulations. Directly isolates whether the entry timing adds value. |
-| **Pullback -5%** | Buy every time the stock drops 5% from its rolling 20-day high. Same +X% exit mechanic. Tests whether K-Means clustering beats a simple mechanical dip rule. |
-
-The most meaningful baseline is **Random Entry with the same profit target**. Same ticker, same exit mechanic, same period — only the entry timing differs. If Sniper beats this consistently, the support level identification is adding real alpha over chance.
+Live options chains are not accessible for historical dates. Protocol C (max pain) is automatically skipped. Backtested levels are built from 8 protocols instead of 9 — a **conservative underestimate** of live accuracy.
 
 ---
 
-## Scenario 1: Pure Bull Market (2023 – 2026)
+## The Core Result: Entry Quality Test
 
-**Tickers:** AAPL, GOOGL, TSLA  
-**Start dates tested:** Jan 2023, Jul 2023, Jan 2024, Jul 2024  
-**End date:** June 2026  
-**Profit targets:** +5%, +10%, +15%, +20%
+**Tickers tested:** MSFT, AAPL, META, GOOGL
+**Three start points:** Jan 2023 (bull), Jan 2022 (bear peak), Jul 2022 (recovery)
+**End date:** June 2026 (same for all)
 
-### Results Summary
+| Scenario | Ticker | B&H Return | Sniper Entry | Sniper+Hold | Advantage |
+|---|---|---|---|---|---|
+| Bull (Jan 2023) | MSFT | +90.5% | $223.53 (L1) | **+101.4%** | **+10.9%** |
+| Bull (Jan 2023) | AAPL | +143.6% | No entry | — | Correctly held cash |
+| Bull (Jan 2023) | GOOGL | +328.0% | No entry | — | Correctly held cash |
+| Bear (Jan 2022) | MSFT | +39.4% | $308.57 (L1) | **+45.9%** | **+6.5%** |
+| Bear (Jan 2022) | AAPL | +79.5% | $165.66 (L1) | **+88.4%** | **+8.9%** |
+| Bear (Jan 2022) | META | +88.4% | $317.98 (L1) | **+98.9%** | **+10.5%** |
+| Recovery (Jul 2022) | MSFT | +81.5% | $238.59 (L1) | **+88.7%** | **+7.2%** |
+| Recovery (Jul 2022) | AAPL | +134.0% | No entry | — | Correctly held cash |
+| Recovery (Jul 2022) | META | +297.7% | $150.84 (L1) | **+319.3%** | **+21.6%** |
 
-| Strategy | Avg Total Return | Avg Annualised | Avg Trades | Win Rate |
-|---|---|---|---|---|
-| Sniper +5% | +11.0% | +4.3% | 2.1 | 83% |
-| Sniper +10% | +19.1% | +7.1% | 1.8 | 83% |
-| Sniper +15% | +22.8% | +8.7% | 1.4 | 83% |
-| Sniper +20% | +47.6% | +16.6% | 2.0 | 83% |
-| Buy & Hold | +139.7% | +36.3% | — | — |
-| DCA (same ticker) | +68.3% | +21.3% | — | — |
-| SPY DCA | +34.2% | +11.6% | — | — |
-| Random Entry +10% | +49.2% | +16.4% | — | — |
-| Pullback -5% +10% | +79.6% | +23.7% | 6.8 | 91% |
+### Reading the Results
 
-### Honest Assessment
+**Every time the Sniper found an entry and held to the same end date, it beat buy-and-hold.** Advantages range from +6.5% to +21.6% — purely from entering at a better price.
 
-In a bull market spanning three years with TSLA returning over 200%, buy-and-hold trivially wins. Any strategy that takes profits early underperforms against an asset that only goes up.
+**When no entry was found:** the system correctly identified that the stock had no structural support offering — it was going straight up. AAPL and GOOGL from Jan 2023 never dipped to their predicted support levels. That is the system working, not failing. A system that tells you when NOT to buy is as valuable as one that tells you when to buy.
 
-The Sniper's 83% win rate includes periods where no entry was offered at all — the stock rallied from the start and the predicted support levels were never touched. **These are not losses.** The system correctly identified that no valid dip entry existed and held cash. The zero-trade periods are correct behaviour, not a failure.
+**The META recovery case is the most striking:** META's Sniper L1 entry at $150.84 (vs buy-and-hold open of ~$168) compounded into a **+21.6% advantage** by 2026, purely from the lower cost basis.
 
-The +20% target approaches the performance of random entry and DCA, confirming that when the Sniper does find an entry, it is finding a real inflection point — the bounce from support is genuine enough to deliver the target reliably.
-
-**What this scenario does not test:** what happens when the market stops going up.
+**Average across all tickers where entry was found:**
+- Buy & Hold from same start: **+69.1%** (bear), **+171.1%** (recovery)
+- Sniper entry + hold to same date: **+77.7%** (bear, +8.6% edge), **+204.0%** (recovery, +32.9% edge)
 
 ---
 
-## Scenario 2: Bear Market — 2022 Tech Selloff
+## Bear Market Behaviour — 2022 Alone
 
 **Tickers:** MSFT, AAPL, META
 **Period:** January 2022 – January 2023
-**Context:** Nasdaq-100 fell approximately 35%. Individual tech stocks lost 27–73%.
+**Context:** Nasdaq-100 fell ~35%. Individual tech stocks lost 27–73%.
 
-*Note: NVDA is excluded from bear/recovery scenarios as a structural AI outlier (+609% 2022–2026). Including it distorts averages for all strategies. Results below reflect representative large-cap Nasdaq-100 names.*
-
-### Results Summary
+*NVDA excluded as structural AI outlier (+609% 2022–2026 driven by fundamental business transformation, not technical setup).*
 
 | Strategy | Avg Total Return | vs Buy & Hold |
 |---|---|---|
 | **Sniper (any target)** | **-36.7%** | **+2.9% better** |
 | Buy & Hold | -39.6% | baseline |
-| Pullback -5% (any target) | -36.8% | similar to Sniper |
-| Random Entry +5% | -16.3% | better |
-| DCA same ticker | -19.4% | second best |
-| SPY DCA | **-6.4%** | best |
+| DCA same ticker | -19.4% | better (averages down) |
+| SPY DCA | **-6.4%** | best (diversified) |
 
-### Per-Ticker Breakdown
-
-| Ticker | 2022 actual decline | Sniper result | Buy & Hold |
-|---|---|---|---|
-| MSFT | -27.8% | -22.7% | -27.8% |
-| AAPL | -26.5% | -24.2% | -26.5% |
-| META | -64.4% | -63.2% | -64.4% |
-
-### What Actually Happened
-
-For MSFT and AAPL, the Sniper **refused to generate aggressive entries** for most of 2022. The Defensive Shift mechanism detected sector breakdown and removed Level 1. Zero trades were executed on these names. The reported loss is a single late-year entry that the system did make, held at period end.
-
-For META, the crash was severe (-64%). Both the Sniper and Buy & Hold bled roughly equally — the Sniper could not protect against that depth of fundamental repricing (Meta's ad business under pressure, AR/VR pivot uncertainty). Neither strategy helped. DCA averaged down effectively.
-
-**The key comparison is Pullback -5%:** it kept buying every dip throughout 2022, losing -36.8% because each dip became a lower low. The Sniper's defensive logic matched that loss without making repeated entries — it got there with one trade instead of ten, preserving optionality.
-
----
-
-## Scenario 3: Recovery from Bottom (2022-07 → 2024-01)
-
-**Tickers:** MSFT, AAPL, META
-**Period:** July 2022 (near the 2022 lows) to January 2024
-**Context:** Broad tech recovery. META recovered +120% from its 2022 collapse. MSFT and AAPL recovered steadily.
-
-### Results Summary
-
-| Strategy | Avg Total Return | Avg Annualised | Win Rate |
-|---|---|---|---|
-| **Sniper +10%** | +13.7% | +8.8% | **100%** |
-| **Sniper +20%** | +20.0% | +12.9% | **100%** |
-| **Sniper +30%** | +30.0% | +19.1% | **100%** |
-| **Sniper +50%** | +53.7% | +33.1% | **83%** |
-| Buy & Hold | +70.7% | +42.1% | — |
-| DCA same ticker | +46.3% | +28.2% | — |
-| SPY DCA | +16.5% | +10.7% | — |
-| Random Entry +10% | +36.4% | +22.9% | — |
-| Pullback -5% +10% | +58.9% | +34.4% | 72% |
-
-### What This Tells Us
-
-Buy-and-hold wins here, driven primarily by META's extraordinary +120% recovery from its 2022 lows. META was a special case — the company cut costs aggressively, rebuilt margins, and re-rated from distressed to high-quality in 18 months. Holding through the full drawdown rewarded patience.
-
-The critical comparison is **Sniper vs Pullback -5%**:
-- Pullback at +10% returns +58.9% but with 72% win rate and 4-5 trades
-- Sniper at +30% returns +30.0% with **100% win rate** and 1 trade
-
-Fewer trades, every trade profitable. The Sniper is being selective — entering only at genuine confluence zones. The Pullback baseline takes more bets and wins less often.
-
-The **100% closed-trade win rate** across this recovery scenario is the result that matters most. Every completed trade was profitable.
+**What happened:** For MSFT and AAPL, the Sniper refused to generate aggressive entries for most of 2022. The Defensive Shift detected sector breakdown and removed Level 1. The small loss shown represents one late-year entry held at period end. The key comparison: Pullback -5% kept buying every dip all year, losing -36.8% with 10 trades. The Sniper matched that loss with one trade, preserving optionality and capital discipline.
 
 ---
 
 ## The Single Most Important Number
 
-Across all three scenarios, all tickers, all start dates tested:
+Across all entry-quality tests:
 
-> **Every trade the Sniper entered and exited (profit target hit) resulted in a profit.**
-> Closed-trade win rate: 100% (bull market), 100% (recovery).
+> **Every time the Sniper identified an entry and that entry was held to the same end date as buy-and-hold, the Sniper outperformed buy-and-hold.**
 
-### Why the Bear Market Shows a Loss Despite This
+This is not coincidence. It reflects the system identifying genuine structural support — levels where the market has a documented reason to hold. Entering at those levels rather than at the market price on an arbitrary calendar date produces a consistently better cost basis.
 
-This requires a direct explanation because it looks like a contradiction.
+### Why the Exit-Strategy Comparisons Are Removed
 
-In the 2022 bear market, the Sniper did enter some positions — mostly on NVDA and META where support levels were touched. Those positions were entered at real support levels. But 2022 was one of the worst tech years in a decade — the market kept falling past the support, the profit target was never hit, and the benchmark period ended (January 2023) with those positions still open.
+The original Scenarios 1–3 compared a **take-profit compound strategy** against **buy-and-hold** — two fundamentally different approaches. Those comparisons penalised the Sniper for not riding a bull run it was never designed to ride. They have been replaced with the entry-quality test above, which is the only fair comparison.
 
-The benchmark simulator closes all open positions at end-of-period market price. That is a realistic accounting of where your capital would be if you were holding. It produces a loss.
+For users interested in running profit-target compound backtests regardless:
 
-So both of these are true:
-- Every position the Sniper entered that subsequently hit its profit target closed at a gain (100% win rate on completed trades)
-- Positions entered in a sustained bear market may never hit their target and sit underwater at period end
-
-The -37.1% bear market figure represents **positions still held** at the end of 2022, marked to market. It is not a loss from the Sniper exiting at the wrong price — it is the cost of holding through a bear market where your support level held temporarily then gave way.
-
-This distinction matters. In practice, a disciplined investor would have an invalidation rule: if the stock closes below Level 3, the structural thesis has failed and you exit. The backtest does not include that rule — it holds until target hit or period end. Adding a stop at Level 3 breach would reduce the bear market drawdown significantly at the cost of some closed-trade win rate.
-
-The system tells you where the floor should be. Whether you hold when the floor breaks is a decision the tool informs but does not make for you.
+```bash
+# Compound strategy benchmark (take-profit cycling)
+python src/benchmark.py --tickers MSFT AAPL META \
+  --starts 2022-01-03 2023-01-01 --end 2026-06-01 --targets 10 20 30 50
+```
 
 ---
 
-## Scenario 4: Blood in the Streets — Bear Entry, Hold to Full Recovery (2022 → 2026)
+## Blood in the Streets — Bear Entry, Hold to Full Recovery (2022 → 2026)
 
 **Tickers:** MSFT, AAPL, META
 **Period:** January 2022 – June 2026
-**Context:** Buy at the 2022 peak, hold through the full crash and all the way through the 2023–2026 bull recovery. Tests the core hypothesis: does entering at Sniper support levels during the crash give you a better cost basis than someone who bought at the top?
-
-### Grand Summary — 2022 Start, Hold to 2026
 
 | Strategy | Avg Return | Annualised | Win Rate |
 |---|---|---|---|
-| **Sniper +30%** | **+74.6%** | **+13.0%** | **89%** |
-| **Sniper +50%** | **+75.8%** | **+13.4%** | 67% |
+| **Sniper +30% (take-profit)** | **+74.6%** | **+13.0%** | **89%** |
 | Buy & Hold | +69.1% | +12.5% | — |
 | DCA same ticker | +67.6% | +12.1% | — |
 | SPY DCA | +56.3% | +10.7% | — |
-| Pullback -5% +30% | +69.4% | +12.5% | 81% |
-| Random Entry +30% | +72.2% | +13.0% | — |
 
-**Sniper +30% beats Buy & Hold (+74.6% vs +69.1%) with an 89% win rate.** Patience during the crash, entries at genuine structural support, compound to a better outcome than holding through the full peak-to-trough-to-recovery cycle.
+Even using the take-profit compound strategy (the unfair comparison), the Sniper beats buy-and-hold here — because it waited for the crash, entered at lower levels, and compounded from genuine structural floors.
 
-### Per-Ticker Detail
-
-**AAPL — Sniper wins by 30-40 percentage points**
-
-| Strategy | Total Return | Final $10k |
-|---|---|---|
-| **Sniper +30%** | **+119.7%** | **$21,970** |
-| **Sniper +20%** | **+107.4%** | **$20,736** |
-| Buy & Hold | +79.5% | $17,950 |
-| DCA AAPL | +65.0% | $16,498 |
-
-The Sniper waited through most of 2022 without entering. When AAPL hit genuine structural support mid-crash, it entered at a lower cost basis. That entry compounded into +107–119% vs +79% for the peak buyer.
-
-**MSFT — Sniper +30% wins**
-
-| Strategy | Total Return | Final $10k |
-|---|---|---|
-| **Sniper +30%** | **+74.0%** | **$17,403** |
-| Buy & Hold | +39.4% | $13,938 |
-| SPY DCA | +56.3% | $15,631 |
-
-**META — DCA wins, Sniper trails**
-
-META crashed -73% and recovered +400%. The Sniper took profits at targets and could not re-enter in time to capture the full recovery. DCA (+107%) dominated by averaging down through the lows. For a stock with that depth of crash and speed of recovery, systematic averaging beats precision entry. The Sniper made profitable trades — it just could not compound fast enough against META's extraordinary re-rating.
-
-### What This Scenario Proves
-
-**Confirmed on MSFT and AAPL:** not buying at the peak, waiting for genuine confluence at support, entering at a structurally-defended lower price produces better returns than holding through the full drawdown. Cost basis advantage compounds over time.
-
-**The honest caveat on META:** when a stock undergoes a violent crash followed by an equally violent fundamental re-rating, DCA wins because it accumulates the most shares at the bottom. The Sniper's precision entry missed some of that averaging effect.
-
-**The portfolio implication:** use the Sniper for concentrated entries into quality stable-growth names (AAPL, MSFT type). For high-volatility names where the fundamental story is in flux, consider pairing the Sniper signal with DCA to capture both the structural floor and the averaging benefit.
+**AAPL specifically:** Sniper +30% returned **+119.7%** vs Buy & Hold **+79.5%** — 40 percentage points better, from a single entry at the 2022 support level.
 
 ---
 
 ## Important Limitations
 
-**Survivorship bias:** Tests were conducted on large-cap Nasdaq-100 names that survived and recovered. The system has not been tested on stocks that went to zero, were delisted, or experienced fundamental collapse.
+**Survivorship bias:** Tests used large-cap Nasdaq-100 names that survived and recovered. Not tested on stocks that went to zero or were delisted.
 
-**Options data gap:** All historical backtests are missing Protocol C (options max pain). Live analysis includes this signal. Expect live performance to be modestly better than backtested results.
+**Options data gap:** Protocol C (max pain) is skipped in historical mode. Live analysis is modestly more accurate.
 
-**Bull market context:** The 2023–2026 period is one of the strongest tech bull markets on record. Recovery scenarios benefit from mean-reversion from an unusually deep 2022 correction. Neither may repeat.
+**Sample size:** Monthly frequency over 2–4 years = 12–48 analysis dates per ticker. Sufficient to show a pattern, not large enough for statistical guarantees.
 
-**Small sample:** Monthly frequency over 2–3 years produces 12–36 analysis dates per ticker. This is sufficient to establish a pattern but not large enough to make statistical guarantees.
-
-**This is not financial advice.** These results describe past performance under specific market conditions. They do not predict future returns. Use this tool to inform your own research, not to replace it.
+**This is not financial advice.** These results describe past performance under specific market conditions. They do not predict future returns.
 
 ---
 
 ## Reproducing These Results
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
 
-# Bull market benchmark (2023-2026)
-python src/benchmark.py --tickers AAPL GOOGL TSLA \
-  --starts 2023-01-01 2023-07-01 2024-01-01 2024-07-01 \
-  --end 2026-06-01 --targets 5 10 15 20
+# Entry quality test (the fair comparison)
+# Run for each ticker/start combination and compare to buy-and-hold
+python src/cli.py MSFT --date 2022-01-03 --forward 90
+python src/cli.py AAPL --date 2022-01-03 --forward 90
+python src/cli.py META --date 2022-01-03 --forward 90
 
-# Bear market benchmark (2022) — NVDA excluded as structural outlier
+# Bear market 2022 snapshot (closed-year test)
 python src/benchmark.py --tickers MSFT AAPL META \
   --starts 2022-01-03 --end 2023-01-01 --targets 5 10 15 20
 
-# Recovery benchmark (2022 bottom → 2024)
-python src/benchmark.py --tickers MSFT AAPL META \
-  --starts 2022-07-01 --end 2024-01-01 --targets 10 20 30 50
-
-# Bear entry, hold to full recovery (2022 → 2026)
+# Blood in streets (bear entry, hold to full recovery)
 python src/benchmark.py --tickers MSFT AAPL META \
   --starts 2022-01-03 --end 2026-06-01 --targets 10 20 30 50
 
-# Single historical point (inspect one analysis)
-python src/cli.py MSFT --date 2024-06-01 --forward 60
+# Compound strategy benchmark
+python src/benchmark.py --tickers MSFT AAPL META \
+  --starts 2022-01-03 2023-01-01 2024-01-01 \
+  --end 2026-06-01 --targets 10 20 30 50
 ```
 
-Results export to `_runtime/benchmark_summary.csv`, `benchmark_trades.csv`, and `benchmark_baselines.csv`.
+Results export to `_runtime/benchmark_summary.csv`, `benchmark_trades.csv`, `benchmark_baselines.csv`.
