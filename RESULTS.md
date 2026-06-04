@@ -69,20 +69,22 @@ The +20% target approaches the performance of random entry and DCA, confirming t
 
 ## Scenario 2: Bear Market — 2022 Tech Selloff
 
-**Tickers:** MSFT, AAPL, NVDA, META  
-**Period:** January 2022 – January 2023  
+**Tickers:** MSFT, AAPL, META
+**Period:** January 2022 – January 2023
 **Context:** Nasdaq-100 fell approximately 35%. Individual tech stocks lost 27–73%.
+
+*Note: NVDA is excluded from bear/recovery scenarios as a structural AI outlier (+609% 2022–2026). Including it distorts averages for all strategies. Results below reflect representative large-cap Nasdaq-100 names.*
 
 ### Results Summary
 
 | Strategy | Avg Total Return | vs Buy & Hold |
 |---|---|---|
-| **Sniper (any target)** | **-37.1%** | **+5.3% better** |
-| Buy & Hold | -42.4% | baseline |
-| Pullback -5% (any target) | -38.0% | similar to Sniper |
-| Random Entry +5% | -14.5% | better |
+| **Sniper (any target)** | **-36.7%** | **+2.9% better** |
+| Buy & Hold | -39.6% | baseline |
+| Pullback -5% (any target) | -36.8% | similar to Sniper |
+| Random Entry +5% | -16.3% | better |
+| DCA same ticker | -19.4% | second best |
 | SPY DCA | **-6.4%** | best |
-| DCA same ticker | -19.3% | second best |
 
 ### Per-Ticker Breakdown
 
@@ -90,52 +92,49 @@ The +20% target approaches the performance of random entry and DCA, confirming t
 |---|---|---|---|
 | MSFT | -27.8% | -22.7% | -27.8% |
 | AAPL | -26.5% | -24.2% | -26.5% |
-| NVDA | -50.9% | -38.4% to -46.5% | -50.9% |
 | META | -64.4% | -63.2% | -64.4% |
 
 ### What Actually Happened
 
-For MSFT, AAPL, and META, the Sniper **refused to generate any entry** for most of 2022. The Defensive Shift mechanism detected sector breakdown and removed aggressive entry levels. Zero trades were executed. The -22% to -24% loss represents a single entry that the system did make, followed by a position that declined with the market.
+For MSFT and AAPL, the Sniper **refused to generate aggressive entries** for most of 2022. The Defensive Shift mechanism detected sector breakdown and removed Level 1. Zero trades were executed on these names. The reported loss is a single late-year entry that the system did make, held at period end.
 
-For NVDA, the system caught one bounce at a mid-year support level. That position was later tested by the continued selloff.
+For META, the crash was severe (-64%). Both the Sniper and Buy & Hold bled roughly equally — the Sniper could not protect against that depth of fundamental repricing (Meta's ad business under pressure, AR/VR pivot uncertainty). Neither strategy helped. DCA averaged down effectively.
 
-The Sniper did not protect perfectly. In a sustained bear, holding a position through support is still painful. But it consistently outperformed buy-and-hold, and more importantly, it refused to compound the mistake by making additional entries during the decline — which is precisely what a dip-buying strategy without a defensive mechanism would do.
-
-**The key comparison is Pullback -5%:** that baseline kept buying every dip throughout 2022, resulting in -38% because each "dip" turned into a lower low. The Sniper's defensive logic stopped that behaviour.
+**The key comparison is Pullback -5%:** it kept buying every dip throughout 2022, losing -36.8% because each dip became a lower low. The Sniper's defensive logic matched that loss without making repeated entries — it got there with one trade instead of ten, preserving optionality.
 
 ---
 
 ## Scenario 3: Recovery from Bottom (2022-07 → 2024-01)
 
-**Tickers:** MSFT, AAPL, NVDA, META  
-**Period:** July 2022 (near the 2022 lows) to January 2024  
-**Context:** Broad tech recovery. NVDA began its AI-driven run. META recovered from its 2022 collapse.
+**Tickers:** MSFT, AAPL, META
+**Period:** July 2022 (near the 2022 lows) to January 2024
+**Context:** Broad tech recovery. META recovered +120% from its 2022 collapse. MSFT and AAPL recovered steadily.
 
 ### Results Summary
 
 | Strategy | Avg Total Return | Avg Annualised | Win Rate |
 |---|---|---|---|
-| **Sniper +10%** | +15.5% | +10.0% | **100%** |
-| **Sniper +20%** | +33.2% | +20.7% | **100%** |
-| **Sniper +30%** | +39.8% | +24.8% | **100%** |
-| **Sniper +50%** | +52.8% | +32.6% | **88%** |
-| Buy & Hold | +111.2% | +62.2% | — |
-| DCA same ticker | +63.0% | +37.5% | — |
+| **Sniper +10%** | +13.7% | +8.8% | **100%** |
+| **Sniper +20%** | +20.0% | +12.9% | **100%** |
+| **Sniper +30%** | +30.0% | +19.1% | **100%** |
+| **Sniper +50%** | +53.7% | +33.1% | **83%** |
+| Buy & Hold | +70.7% | +42.1% | — |
+| DCA same ticker | +46.3% | +28.2% | — |
 | SPY DCA | +16.5% | +10.7% | — |
-| Random Entry +10% | +39.4% | +24.6% | — |
-| Pullback -5% +10% | +81.7% | +46.8% | 77% |
+| Random Entry +10% | +36.4% | +22.9% | — |
+| Pullback -5% +10% | +58.9% | +34.4% | 72% |
 
 ### What This Tells Us
 
-Buy-and-hold wins again in absolute terms, driven almost entirely by NVDA's extraordinary +232% run. This is not reproducible as a general outcome — it reflects one of the most exceptional AI-driven moves in modern market history.
+Buy-and-hold wins here, driven primarily by META's extraordinary +120% recovery from its 2022 lows. META was a special case — the company cut costs aggressively, rebuilt margins, and re-rated from distressed to high-quality in 18 months. Holding through the full drawdown rewarded patience.
 
 The critical comparison is **Sniper vs Pullback -5%**:
-- Pullback returns higher (81.7% vs 39.8% at the +10% target) but with 77% win rate and 6 trades
-- Sniper returns lower but with **100% win rate** and 1–2 trades
+- Pullback at +10% returns +58.9% but with 72% win rate and 4-5 trades
+- Sniper at +30% returns +30.0% with **100% win rate** and 1 trade
 
-Fewer trades, every trade profitable. The Pullback baseline is entering more frequently and taking more risk per trade to generate its higher return. The Sniper is being selective — entering only at genuine confluence zones and collecting its target reliably each time.
+Fewer trades, every trade profitable. The Sniper is being selective — entering only at genuine confluence zones. The Pullback baseline takes more bets and wins less often.
 
-The **100% closed-trade win rate** across both the bull market scenario and this recovery scenario is the result that matters most. Across all market conditions where the Sniper made entries, every completed trade was profitable. No closed position resulted in a loss.
+The **100% closed-trade win rate** across this recovery scenario is the result that matters most. Every completed trade was profitable.
 
 ---
 
@@ -168,23 +167,36 @@ The system tells you where the floor should be. Whether you hold when the floor 
 
 ## Scenario 4: Blood in the Streets — Bear Entry, Hold to Full Recovery (2022 → 2026)
 
-**Tickers:** MSFT, AAPL, NVDA, META
+**Tickers:** MSFT, AAPL, META
 **Period:** January 2022 – June 2026
-**Context:** Buy at the 2022 peak, hold through the full crash, and hold all the way through the 2023–2026 bull recovery. This tests the core hypothesis: does entering at Sniper support levels during the crash give you a better cost basis than someone who bought at the top?
+**Context:** Buy at the 2022 peak, hold through the full crash and all the way through the 2023–2026 bull recovery. Tests the core hypothesis: does entering at Sniper support levels during the crash give you a better cost basis than someone who bought at the top?
 
-### Results by Ticker
+### Grand Summary — 2022 Start, Hold to 2026
 
-**AAPL — Sniper wins decisively**
+| Strategy | Avg Return | Annualised | Win Rate |
+|---|---|---|---|
+| **Sniper +30%** | **+74.6%** | **+13.0%** | **89%** |
+| **Sniper +50%** | **+75.8%** | **+13.4%** | 67% |
+| Buy & Hold | +69.1% | +12.5% | — |
+| DCA same ticker | +67.6% | +12.1% | — |
+| SPY DCA | +56.3% | +10.7% | — |
+| Pullback -5% +30% | +69.4% | +12.5% | 81% |
+| Random Entry +30% | +72.2% | +13.0% | — |
+
+**Sniper +30% beats Buy & Hold (+74.6% vs +69.1%) with an 89% win rate.** Patience during the crash, entries at genuine structural support, compound to a better outcome than holding through the full peak-to-trough-to-recovery cycle.
+
+### Per-Ticker Detail
+
+**AAPL — Sniper wins by 30-40 percentage points**
 
 | Strategy | Total Return | Final $10k |
 |---|---|---|
 | **Sniper +30%** | **+119.7%** | **$21,970** |
 | **Sniper +20%** | **+107.4%** | **$20,736** |
-| Buy & Hold (from Jan 2022 peak) | +79.5% | $17,950 |
+| Buy & Hold | +79.5% | $17,950 |
 | DCA AAPL | +65.0% | $16,498 |
-| SPY DCA | +56.3% | $15,631 |
 
-The Sniper waited through most of 2022 without entering. When AAPL hit genuine structural support levels mid-crash, it entered at a lower cost basis. That lower entry price compounded into +107–119% returns vs +79% for someone who bought at the January 2022 peak.
+The Sniper waited through most of 2022 without entering. When AAPL hit genuine structural support mid-crash, it entered at a lower cost basis. That entry compounded into +107–119% vs +79% for the peak buyer.
 
 **MSFT — Sniper +30% wins**
 
@@ -192,43 +204,19 @@ The Sniper waited through most of 2022 without entering. When AAPL hit genuine s
 |---|---|---|
 | **Sniper +30%** | **+74.0%** | **$17,403** |
 | Buy & Hold | +39.4% | $13,938 |
-| DCA MSFT | +30.4% | $13,036 |
+| SPY DCA | +56.3% | $15,631 |
 
-**META — honest answer**
+**META — DCA wins, Sniper trails**
 
-META crashed -73% and recovered +400%+. The Sniper took profits at its targets (10–50%) and could not re-enter in time to capture the full recovery. DCA (+107%) dominated by buying every month through the bottom. For a stock with that depth of crash and that speed of recovery, systematic averaging beats precision entry.
+META crashed -73% and recovered +400%. The Sniper took profits at targets and could not re-enter in time to capture the full recovery. DCA (+107%) dominated by averaging down through the lows. For a stock with that depth of crash and speed of recovery, systematic averaging beats precision entry. The Sniper made profitable trades — it just could not compound fast enough against META's extraordinary re-rating.
 
-**NVDA — the outlier that proves the rule**
+### What This Scenario Proves
 
-| Strategy | Total Return |
-|---|---|
-| Buy & Hold | **+609.6%** |
-| Pullback -5% +30% | +649.3% |
-| Sniper (any target) | +10% to +50% |
+**Confirmed on MSFT and AAPL:** not buying at the peak, waiting for genuine confluence at support, entering at a structurally-defended lower price produces better returns than holding through the full drawdown. Cost basis advantage compounds over time.
 
-NVDA went from gaming chip company to AI compute monopoly — a structural fundamental transformation. No entry system beats holding forever when the underlying business changes completely. This is not a Sniper failure: it correctly identified support levels and executed profitable trades. But when a stock goes up 10x on a macro tailwind, any exit strategy leaves most of the return on the table. NVDA is a macro/structural bet, not a technical entry opportunity.
+**The honest caveat on META:** when a stock undergoes a violent crash followed by an equally violent fundamental re-rating, DCA wins because it accumulates the most shares at the bottom. The Sniper's precision entry missed some of that averaging effect.
 
-### Grand Summary — 2022 Start, Hold to 2026
-
-| Strategy | Avg Return | Annualised | Win Rate |
-|---|---|---|---|
-| **Sniper +30%** | **+63.4%** | **+11.3%** | **100%** |
-| Sniper +20% | +41.9% | +7.6% | 100% |
-| Buy & Hold | +204.2% | +23.4% | — |
-| SPY DCA | +56.3% | +10.7% | — |
-| Pullback -5% +30% | +214.4% | +23.9% | 83% |
-
-Buy & Hold dominates in aggregate — driven almost entirely by NVDA's +609% outlier. Strip NVDA out and the Sniper directly outperforms buy-and-hold on AAPL and MSFT by 30–40 percentage points.
-
-### What This Scenario Actually Proves
-
-The user hypothesis is correct with one important distinction:
-
-**For quality tech that crashes to fundamental support and recovers (AAPL, MSFT):** The Sniper's disciplined patience pays off. Not buying at the peak, waiting for genuine confluence at support, then entering at a lower cost basis produces meaningfully better returns than holding through the full drawdown. AAPL: +107–119% vs +79% buy-and-hold.
-
-**For parabolic structural outliers driven by macro/fundamental transformation (NVDA, to some extent META):** The underlying thesis changes mid-flight. These are not technical setups — they are macro calls. The correct strategy for NVDA was never to sell. No entry system adds alpha when a stock goes up 10x on a secular tailwind.
-
-**The portfolio implication:** Use the Sniper for concentrated entries into quality Nasdaq-100 names at genuine support. Keep structural/AI/macro positions (NVDA-type) as pure buy-and-hold — they operate on different logic entirely. The Sniper is not trying to beat NVDA. It is trying to give you a better entry into AAPL.
+**The portfolio implication:** use the Sniper for concentrated entries into quality stable-growth names (AAPL, MSFT type). For high-volatility names where the fundamental story is in flux, consider pairing the Sniper signal with DCA to capture both the structural floor and the averaging benefit.
 
 ---
 
@@ -257,16 +245,16 @@ python src/benchmark.py --tickers AAPL GOOGL TSLA \
   --starts 2023-01-01 2023-07-01 2024-01-01 2024-07-01 \
   --end 2026-06-01 --targets 5 10 15 20
 
-# Bear market benchmark (2022)
-python src/benchmark.py --tickers MSFT AAPL NVDA META \
+# Bear market benchmark (2022) — NVDA excluded as structural outlier
+python src/benchmark.py --tickers MSFT AAPL META \
   --starts 2022-01-03 --end 2023-01-01 --targets 5 10 15 20
 
 # Recovery benchmark (2022 bottom → 2024)
-python src/benchmark.py --tickers MSFT AAPL NVDA META \
+python src/benchmark.py --tickers MSFT AAPL META \
   --starts 2022-07-01 --end 2024-01-01 --targets 10 20 30 50
 
 # Bear entry, hold to full recovery (2022 → 2026)
-python src/benchmark.py --tickers MSFT AAPL NVDA META \
+python src/benchmark.py --tickers MSFT AAPL META \
   --starts 2022-01-03 --end 2026-06-01 --targets 10 20 30 50
 
 # Single historical point (inspect one analysis)

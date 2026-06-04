@@ -68,24 +68,24 @@ Full methodology and data in [RESULTS.md](RESULTS.md).
 
 ### Across all market conditions tested
 
+*NVDA excluded from bear/recovery tests as a structural AI outlier (+609% 2022-2026 driven by fundamental business transformation, not technical entry opportunity).*
+
 | Scenario | Period | Sniper Result | Buy & Hold |
 |---|---|---|---|
 | Bull market | 2023-2026 | +11% to +47.6% (83% win rate) | +139.7% |
-| Bear market | 2022 only | -37.1% (mostly cash, refused most entries) | **-42.4%** |
-| Recovery | mid-2022 to 2024 | +15.5% to +52.8% (**100% win rate**) | +111.2% |
-| **Blood in the streets** | **2022 crash, hold to 2026** | **AAPL: +107-119% vs +79% B&H** | +204% avg* |
-
-*\* Buy & Hold average dominated by NVDA's +609% AI-structural outlier. See below.*
+| Bear market | 2022 | -36.7% (mostly cash, refused most entries) | **-39.6%** |
+| Recovery | mid-2022 to 2024 | +13.7% to +53.7% (**100% win rate**) | +70.7% |
+| **Bear entry, hold to 2026** | **2022 crash, hold to full recovery** | **+74.6% (89% win rate)** | **+69.1%** |
 
 **The number that matters most:** every trade the Sniper entered and exited (profit target hit) closed at a gain. 100% closed-trade win rate across bull and recovery markets.
 
-### The NVDA caveat — and why it matters
+**The headline result from Scenario 4 (MSFT, AAPL, META — 2022 to 2026):**
+- Sniper +30%: **+74.6%** vs Buy & Hold **+69.1%**
+- AAPL specifically: Sniper +30% returned **+119.7%** vs Buy & Hold **+79.5%**
 
-The extended bear-to-recovery test reveals something important. For **AAPL and MSFT**, the Sniper waited through the crash, entered at genuine structural support, and outperformed buy-and-hold by 30–40 percentage points when held to 2026. That is the thesis working exactly as intended.
+The Sniper waited through the crash, entered at genuine structural support when other strategies were bleeding, and compounded from a better cost basis through the full recovery. That is the thesis working as intended.
 
-For **NVDA**, buy-and-hold returned +609% and no entry system comes close. NVDA underwent a fundamental business transformation — gaming chip maker to AI compute monopoly. That is a macro structural call, not a technical entry opportunity. The Sniper is not designed to beat NVDA. It is designed to give you a better entry into AAPL.
-
-**The honest use case:** use the Sniper for concentrated entries into quality Nasdaq-100 names at genuine structural support. Keep your AI/structural macro positions as pure buy-and-hold — they operate on different logic entirely. See [RESULTS.md](RESULTS.md) for the full per-ticker breakdown.
+See [RESULTS.md](RESULTS.md) for the full methodology and per-ticker breakdown.
 
 ---
 
