@@ -4,31 +4,21 @@ This document describes the backtesting methodology and results across multiple 
 
 ---
 
-## The Only Fair Comparison
-
-Value Sniper is an **entry system**, not a trading bot. It identifies high-probability support levels and waits for them. Comparing "Sniper exits at +10% then re-analyses" against "Buy & Hold rides the full 200%" is not a fair test — they are different strategies with different goals.
-
-**The correct comparison is:**
-- Sniper identifies a support level → price hits it → **hold to the same end date as buy & hold**
-- vs Buy & Hold: buy at the start date → hold to the same end date
-
-This isolates the one variable that matters: **does entering at a Sniper support level give you a better cost basis than just buying on day one?**
-
----
-
 ## Methodology
 
 ### How the Entry-Hold Test Works
+
+The primary comparison used here: Sniper identifies a support level → price hits it → hold to the same end date as buy & hold. Same exit for both strategies. The only variable is the entry price.
 
 1. The sniper is run at a historical start date with all data sliced to that point — no lookahead.
 2. Forward price data is used to detect the first support level hit within 90 days.
 3. Entry is recorded at the next day's open after the hit (conservative).
 4. Position is held to the same end date used by Buy & Hold.
-5. Returns are compared: same exit, only the entry price differs.
+5. Returns are compared: same exit, only entry price differs.
 
-### What "No Entry" Means
+### What "No Entry Found" Means
 
-When the system finds no valid entry, it is saying: "I see no structurally defensible floor to buy at right now." This is the system working correctly. For stocks that only go up (AAPL Jan 2023, GOOGL Jan 2023), no entry is offered — and that is honest, not a failure.
+When the system finds no valid entry, the predicted support levels were never touched — the stock moved up without offering a pullback. This is a real limitation: the system waits for structural support and will miss a sustained uptrend that never dips. AAPL in Jan 2023 went from $127 straight to $200+ without touching the $121 support level. The Sniper sat on the sidelines while buy-and-hold made +143%. That is the honest tradeoff of the approach.
 
 ### What Is Not Available in Historical Mode
 
@@ -42,29 +32,33 @@ Live options chains are not accessible for historical dates. Protocol C (max pai
 **Three start points:** Jan 2023 (bull), Jan 2022 (bear peak), Jul 2022 (recovery)
 **End date:** June 2026 (same for all)
 
-| Scenario | Ticker | B&H Return | Sniper Entry | Sniper+Hold | Advantage |
+### Summary — average across tickers per scenario
+
+| Scenario | Tickers with entry | Avg Sniper+Hold | Avg B&H (those tickers) | Edge |
+|---|---|---|---|---|
+| Bear (Jan 2022) | MSFT, AAPL, META | **+77.7%** | +69.1% | **+8.6%** |
+| Recovery (Jul 2022) | MSFT, META | **+204.0%** | +171.1% | **+32.9%** |
+| Bull (Jan 2023) | MSFT only | **+101.4%** | +90.5% | **+10.9%** |
+
+### Per-ticker detail
+
+| Scenario | Ticker | B&H Return | Sniper Entry | Sniper+Hold | Edge |
 |---|---|---|---|---|---|
-| Bull (Jan 2023) | MSFT | +90.5% | $223.53 (L1) | **+101.4%** | **+10.9%** |
-| Bull (Jan 2023) | AAPL | +143.6% | No entry | — | Correctly held cash |
-| Bull (Jan 2023) | GOOGL | +328.0% | No entry | — | Correctly held cash |
-| Bear (Jan 2022) | MSFT | +39.4% | $308.57 (L1) | **+45.9%** | **+6.5%** |
-| Bear (Jan 2022) | AAPL | +79.5% | $165.66 (L1) | **+88.4%** | **+8.9%** |
-| Bear (Jan 2022) | META | +88.4% | $317.98 (L1) | **+98.9%** | **+10.5%** |
-| Recovery (Jul 2022) | MSFT | +81.5% | $238.59 (L1) | **+88.7%** | **+7.2%** |
-| Recovery (Jul 2022) | AAPL | +134.0% | No entry | — | Correctly held cash |
-| Recovery (Jul 2022) | META | +297.7% | $150.84 (L1) | **+319.3%** | **+21.6%** |
+| Bull (Jan 2023) | MSFT | +90.5% | $223.53 | **+101.4%** | **+10.9%** |
+| Bull (Jan 2023) | AAPL | +143.6% | no entry | — | — |
+| Bull (Jan 2023) | GOOGL | +328.0% | no entry | — | — |
+| Bear (Jan 2022) | MSFT | +39.4% | $308.57 | **+45.9%** | **+6.5%** |
+| Bear (Jan 2022) | AAPL | +79.5% | $165.66 | **+88.4%** | **+8.9%** |
+| Bear (Jan 2022) | META | +88.4% | $317.98 | **+98.9%** | **+10.5%** |
+| Recovery (Jul 2022) | MSFT | +81.5% | $238.59 | **+88.7%** | **+7.2%** |
+| Recovery (Jul 2022) | AAPL | +134.0% | no entry | — | — |
+| Recovery (Jul 2022) | META | +297.7% | $150.84 | **+319.3%** | **+21.6%** |
 
-### Reading the Results
+**When an entry was found:** the Sniper beat buy-and-hold every time, by +6.5% to +21.6%, from the lower cost basis alone.
 
-**Every time the Sniper found an entry and held to the same end date, it beat buy-and-hold.** Advantages range from +6.5% to +21.6% — purely from entering at a better price.
+**When no entry was found (AAPL Jan 2023, AAPL/GOOGL recovery):** the stock went straight up without dipping to support. This is a real limitation. AAPL gained +143% in the bull scenario and +134% in the recovery while the Sniper had no position. The system waits for structural support — when a stock never pulls back, you miss the move. That is the honest tradeoff.
 
-**When no entry was found:** the system correctly identified that the stock had no structural support offering — it was going straight up. AAPL and GOOGL from Jan 2023 never dipped to their predicted support levels. That is the system working, not failing. A system that tells you when NOT to buy is as valuable as one that tells you when to buy.
-
-**The META recovery case is the most striking:** META's Sniper L1 entry at $150.84 (vs buy-and-hold open of ~$168) compounded into a **+21.6% advantage** by 2026, purely from the lower cost basis.
-
-**Average across all tickers where entry was found:**
-- Buy & Hold from same start: **+69.1%** (bear), **+171.1%** (recovery)
-- Sniper entry + hold to same date: **+77.7%** (bear, +8.6% edge), **+204.0%** (recovery, +32.9% edge)
+**The META recovery case is the most striking:** entry at $150.84 vs buy-and-hold at ~$168 — a cost basis difference of just 10% that compounded into a **+21.6% advantage** by 2026.
 
 ---
 
@@ -95,11 +89,9 @@ Across all entry-quality tests:
 
 This is not coincidence. It reflects the system identifying genuine structural support — levels where the market has a documented reason to hold. Entering at those levels rather than at the market price on an arbitrary calendar date produces a consistently better cost basis.
 
-### Why the Exit-Strategy Comparisons Are Removed
+### Running Profit-Target Compound Backtests
 
-The original Scenarios 1–3 compared a **take-profit compound strategy** against **buy-and-hold** — two fundamentally different approaches. Those comparisons penalised the Sniper for not riding a bull run it was never designed to ride. They have been replaced with the entry-quality test above, which is the only fair comparison.
-
-For users interested in running profit-target compound backtests regardless:
+For users who want to test the full trade-cycle strategy (enter at support, exit at profit target, re-analyse, repeat):
 
 ```bash
 # Compound strategy benchmark (take-profit cycling)

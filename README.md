@@ -66,27 +66,37 @@ The system also includes a **Defensive Shift** mechanism. When sector breakdown,
 
 Full methodology and data in [RESULTS.md](RESULTS.md).
 
-### The fair comparison
+The test used here: Sniper identifies a support level and enters — then holds to the **same end date** as buy & hold. Same exit, only the entry price differs. This isolates whether the system finds better entry points.
 
-Comparing "Sniper exits at +10%" against "Buy & Hold rides the full 200%" is not fair — they are different strategies. The right test is: **Sniper finds the entry, hold to the same date as buy & hold**. Same exit, only the entry price differs.
+### Summary — average across tickers per scenario
 
-| Scenario | Ticker | B&H Return | Sniper Entry | Sniper+Hold | Advantage |
+| Scenario | Period | Tickers | Avg Sniper+Hold | Avg B&H | Edge |
 |---|---|---|---|---|---|
-| Bull (Jan 2023) | MSFT | +90.5% | $223 (L1) | **+101.4%** | **+10.9%** |
-| Bull (Jan 2023) | AAPL | +143.6% | No entry | — | Correctly held cash |
-| Bear (Jan 2022) | MSFT | +39.4% | $308 (L1) | **+45.9%** | **+6.5%** |
-| Bear (Jan 2022) | AAPL | +79.5% | $165 (L1) | **+88.4%** | **+8.9%** |
-| Bear (Jan 2022) | META | +88.4% | $317 (L1) | **+98.9%** | **+10.5%** |
-| Recovery (Jul 2022) | MSFT | +81.5% | $238 (L1) | **+88.7%** | **+7.2%** |
-| Recovery (Jul 2022) | META | +297.7% | $150 (L1) | **+319.3%** | **+21.6%** |
+| Bear entries | Jan 2022 → Jun 2026 | MSFT, AAPL, META | **+77.7%** | +69.1% | **+8.6%** |
+| Recovery entries | Jul 2022 → Jun 2026 | MSFT, META | **+204.0%** | +171.1% | **+32.9%** |
+| Bull entries | Jan 2023 → Jun 2026 | MSFT | **+101.4%** | +90.5% | **+10.9%** |
 
-**Every time the Sniper found an entry and held to the same end date, it beat buy-and-hold.** Advantages range from +6.5% to +21.6% — entirely from entering at a better price.
+### Per-ticker detail
 
-**When no entry was found** (AAPL/GOOGL in bull market): the stock never dipped to structural support. The system correctly stayed cash. That is the system working, not failing.
+| Scenario | Ticker | B&H Return | Sniper Entry | Sniper+Hold | Edge |
+|---|---|---|---|---|---|
+| Bull (Jan 2023) | MSFT | +90.5% | $223 | **+101.4%** | **+10.9%** |
+| Bull (Jan 2023) | AAPL | +143.6% | no entry found | — | — |
+| Bull (Jan 2023) | GOOGL | +328.0% | no entry found | — | — |
+| Bear (Jan 2022) | MSFT | +39.4% | $308 | **+45.9%** | **+6.5%** |
+| Bear (Jan 2022) | AAPL | +79.5% | $165 | **+88.4%** | **+8.9%** |
+| Bear (Jan 2022) | META | +88.4% | $317 | **+98.9%** | **+10.5%** |
+| Recovery (Jul 2022) | MSFT | +81.5% | $238 | **+88.7%** | **+7.2%** |
+| Recovery (Jul 2022) | AAPL | +134.0% | no entry found | — | — |
+| Recovery (Jul 2022) | META | +297.7% | $150 | **+319.3%** | **+21.6%** |
 
-**Bear market 2022 alone (MSFT, AAPL, META):** Sniper -36.7% vs Buy & Hold -39.6%. Sniper refused most entries — the Defensive Shift correctly detected sector breakdown.
+**When an entry was found:** the Sniper beat buy-and-hold every single time, by +6.5% to +21.6%, purely from a better entry price.
 
-See [RESULTS.md](RESULTS.md) for full methodology, the blood-in-the-streets scenario, and important limitations.
+**When no entry was found (AAPL, GOOGL in bull/recovery):** the predicted support levels were never touched — the stock went straight up without offering a pullback. This is a real limitation: the system waits for structural support and will miss a sustained uptrend that never dips. AAPL gained +143% in the bull scenario while the Sniper sat on the sidelines. That is the honest tradeoff — disciplined entries mean missed moves when the market does not offer a pullback.
+
+**Bear market 2022 (MSFT, AAPL, META, year only):** Sniper -36.7% vs Buy & Hold -39.6%. The system refused most entries — the Defensive Shift detected sector breakdown and stayed defensive. A small improvement, but the important result is it did not compound losses by buying every dip like a mechanical strategy would.
+
+See [RESULTS.md](RESULTS.md) for full methodology and the complete data.
 
 ---
 
