@@ -8,3 +8,4 @@ streamlit
 plotly
 google-generativeai
 python-dotenv
+rich
