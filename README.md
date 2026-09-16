@@ -20,11 +20,9 @@
 
 ---
 
-Most people who lose money in stocks don't pick bad companies. They buy at the wrong price, have no thesis for why that price is defensible, and panic-sell when it falls further.
+Value Sniper is an experimental research tool for studying multi-signal entry levels in technology equities. It combines technical, macro, options-market, breadth, valuation, and optional ML signals into an inspectable dashboard and backtesting workflow.
 
-Value Sniper is built around one idea: **you should never enter a position without knowing why the price level is structurally sound.** Every level the system outputs is backed by nine independent signals drawn from options market microstructure, macro regime data, institutional gap analysis, and market breadth. When they converge, you have a real reason to be there. When they don't, the system tells you to wait.
-
-The result is not a magic return generator. It is a tool that removes investor anxiety. It converts *"I hope this holds"* into *"I know why this should hold"* and that change in certainty changes everything about how you hold a position through volatility. Every entry has a documented thesis. You know the floor. You know what breaks the trade. The uncertainty that causes panic-selling disappears.
+The project is intentionally framed as research, not a trading promise. It is useful for testing hypotheses, comparing baselines, and making assumptions visible; it does not establish that a signal will generalize to unseen markets or future prices.
 
 ---
 
@@ -62,9 +60,9 @@ The system also includes a **Defensive Shift** mechanism. When sector breakdown,
 
 ---
 
-## Results
+## Research status
 
-Full research and detailed findings in [RESEARCH.md](RESEARCH.md).
+Full research notes and preserved findings are in [RESEARCH.md](RESEARCH.md).
 
 The benchmark compares Value Sniper against 14 other entry strategies across two test groups:
 
@@ -109,6 +107,12 @@ This is the design, not a flaw. The system is a precision entry tool for patient
 See [RESEARCH.md](RESEARCH.md) for full tables, year-by-year evolution, and complete analysis.
 
 ---
+
+## Research safeguards
+
+Before treating a backtest as reproducible evidence, verify the data timestamping and point-in-time behavior, universe definition, survivorship and delisting treatment, train/test separation, hyperparameter selection, and parameter sensitivity. Record commissions, spread, slippage, taxes, missing data, data revisions, out-of-sample windows, sample size, and statistical uncertainty. A favorable historical chart is not a prediction and does not establish guaranteed alpha.
+
+The preserved experiments are useful starting points for further validation. Their limitations and negative cases matter as much as the headline tables.
 
 ## Disclaimer
 
