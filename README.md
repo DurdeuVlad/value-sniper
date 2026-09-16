@@ -64,6 +64,8 @@ The system also includes a **Defensive Shift** mechanism. When sector breakdown,
 
 Full research notes and preserved findings are in [RESEARCH.md](RESEARCH.md).
 
+The headline figures below are preserved historical artifacts from prior experiments; this remediation did not independently reproduce them. Treat them as hypotheses to audit, not evidence of predictive performance.
+
 The benchmark compares Value Sniper against 14 other entry strategies across two test groups:
 
 - **Hold Forever** — one entry, hold to period end. Tests pure entry quality.
